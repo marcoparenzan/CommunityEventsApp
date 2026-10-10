@@ -1,0 +1,48 @@
+@baseUrl = https://localhost:5002
+@email = speaker@example.it
+@pin = paste-the-16-digit-pin-here
+
+### Request a PIN for a pre-existing speaker profile; this never creates an account
+POST {{baseUrl}}/api/speaker-auth/request-pin
+Content-Type: application/json
+
+{
+  "email": "{{email}}"
+}
+
+### Verify the PIN and establish the speaker session
+POST {{baseUrl}}/api/speaker-auth/verify-pin
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "pin": "{{pin}}"
+}
+
+### Load the signed-in speaker profile (requires the cookie from verification)
+GET {{baseUrl}}/api/speaker/account
+
+### Load sessions assigned to the signed-in speaker
+GET {{baseUrl}}/api/speaker/sessions
+
+### Save slide and GitHub links for a session assigned to the speaker
+POST {{baseUrl}}/api/speaker/sessions/resources
+Content-Type: application/json
+
+{
+  "eventId": 1,
+  "sessionizeSessionId": "sessionize-session-id",
+  "presentationUrl": "https://example.com/slides",
+  "repositoryUrl": "https://github.com/example/repository"
+}
+
+### Save video, slide, and GitHub links as a superuser
+POST {{baseUrl}}/api/speaker/events/1/sessions/resources
+Content-Type: application/json
+
+{
+  "sessionizeSessionId": "sessionize-session-id",
+  "videoUrl": "https://example.com/video",
+  "presentationUrl": "https://example.com/slides",
+  "repositoryUrl": "https://github.com/example/repository"
+}

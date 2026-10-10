@@ -1,0 +1,146 @@
+@using Microsoft.AspNetCore.Components.Forms
+@inject EventTemplateService Templates
+@inject ILogger<EventTemplateDialog> Logger
+
+<div class="admin-event-dialog-backdrop" @onclick="Close">
+    <section class="admin-event-dialog" role="dialog" aria-modal="true" aria-labelledby="template-dialog-title" @onclick:stopPropagation>
+        <button class="admin-event-dialog-close" type="button" aria-label="Chiudi" @onclick="Close" disabled="@busy">×</button>
+        <h2 id="template-dialog-title">Template PowerPoint · @EventName</h2>
+        <p class="admin-help">Gli speaker di questo evento lo scaricano da “I tuoi eventi”. Il file non è pubblico.</p>
+
+        @if (current is not null)
+        {
+            <p>
+                <strong>@current.FileName</strong><br />
+                @FormatSize(current.SizeBytes) · caricato il @current.UploadedAt.ToItaly().ToString("dd/MM/yyyy HH:mm")
+            </p>
+            <p>
+                <a class="event-button" href="/api/admin/events/@EventId/slide-template" download>Scarica</a>
+                @if (confirmRemove)
+                {
+                    <button type="button" class="admin-cancel-event" @onclick="RemoveAsync" disabled="@busy">Conferma rimozione</button>
+                    <button type="button" @onclick="() => confirmRemove = false" disabled="@busy">Annulla</button>
+                }
+                else
+                {
+                    <button type="button" @onclick="() => confirmRemove = true" disabled="@busy">Rimuovi</button>
+                }
+            </p>
+        }
+        else
+        {
+            <p class="admin-help">Nessun template caricato per questo evento.</p>
+        }
+
+        <div class="admin-wide">
+            <span class="admin-field-label">@(current is null ? "Carica il template" : "Sostituisci il template") (.pptx, .potx, .ppt o .pot, massimo 25 MB)</span>
+            <InputFile OnChange="OnFileSelected" accept=".pptx,.potx,.ppt,.pot" disabled="@busy" />
+        </div>
+
+        @if (!string.IsNullOrEmpty(message)) { <p role="@(isError ? "alert" : "status")" class="admin-help">@message</p> }
+        <div class="admin-event-dialog-actions">
+            <button type="button" @onclick="Close" disabled="@busy">Chiudi</button>
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter] public int EventId { get; set; }
+    [Parameter] public string EventName { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnClosed { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private EventTemplateInfo? current;
+    private bool busy;
+    private bool confirmRemove;
+    private bool isError;
+    private string message = string.Empty;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            current = (await Templates.GetInfosAsync()).GetValueOrDefault(EventId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the event template.");
+            message = "Non è stato possibile leggere il template.";
+            isError = true;
+        }
+    }
+
+    private async Task Close()
+    {
+        if (!busy)
+        {
+            await OnClosed.InvokeAsync();
+        }
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs args)
+    {
+        busy = true;
+        isError = false;
+        message = string.Empty;
+        try
+        {
+            await using var upload = args.File.OpenReadStream(maxAllowedSize: EventTemplateService.MaximumBytes);
+            using var buffer = new MemoryStream();
+            await upload.CopyToAsync(buffer);
+            await Templates.SaveAsync(EventId, args.File.Name, buffer.ToArray());
+            message = $"Template “{args.File.Name}” caricato.";
+            await LoadAsync();
+            await OnChanged.InvokeAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            message = exception.Message;
+            isError = true;
+        }
+        catch (IOException)
+        {
+            message = "Il file deve pesare al massimo 25 MB.";
+            isError = true;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not save the event template.");
+            message = "Non è stato possibile salvare il template.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task RemoveAsync()
+    {
+        busy = true;
+        try
+        {
+            await Templates.RemoveAsync(EventId);
+            confirmRemove = false;
+            message = "Template rimosso.";
+            isError = false;
+            await LoadAsync();
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not remove the event template.");
+            message = "Non è stato possibile rimuovere il template.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static string FormatSize(long bytes) =>
+        bytes >= 1024 * 1024 ? $"{bytes / 1024d / 1024d:0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+}

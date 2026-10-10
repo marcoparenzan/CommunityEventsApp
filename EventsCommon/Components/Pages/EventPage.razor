@@ -1,0 +1,319 @@
+@page "/events/{Year:int}/{Moniker}"
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject ISiteLinks Links
+@inject EventCatalogService EventCatalog
+@inject NavigationManager Navigation
+
+<PageTitle>@(eventInfo?.IsCancelled == true ? $"{eventInfo.Name} · Cancellato" : eventInfo?.Name ?? "Evento 1nn0va")</PageTitle>
+
+@if (eventInfo is null)
+{
+    <main class="event-shell"><h1>Evento non trovato</h1><p>Controlla l'anno e il moniker nell'indirizzo.</p><a href="@Links.Home">Torna agli eventi</a></main>
+}
+else
+{
+    <div class="event-site @(Links.TopbarComponent is null ? "" : "event-site-compact")">
+        @if (Links.TopbarComponent is { } topbar)
+        {
+            <DynamicComponent Type="topbar" />
+        }
+        <header class="event-hero">
+            <div class="event-hero-shade"></div>
+            @if (Links.TopbarComponent is null)
+            {
+                <nav class="event-nav">
+                    <a class="event-brand" href="@Links.Home"><img src="/img/1nn0va.png" alt="1nn0va" /><span>Eventi</span></a>
+                    <a href="#agenda">Agenda</a>
+                    <a href="/events/@eventInfo.Year/@eventInfo.Moniker/speakers">Relatori</a>
+                    <a href="#sponsor">Sponsor</a>
+                    <a href="@Links.Account()">Area personale</a>
+                </nav>
+            }
+            <div class="event-hero-content">
+                <h1>@eventInfo.Name</h1>
+                <div class="event-facts">
+                    <p class="event-date">@FormattedDate</p>
+                    <div class="event-facts-actions">
+                        @if (eventInfo.IsCancelled)
+                        {
+                            <p class="event-cancelled-banner" role="status">Evento cancellato. Le iscrizioni e il check-in sono chiusi.</p>
+                        }
+                        else if (Links.ShowRegistration)
+                        {
+                            <a class="event-button" href="@Links.Account(eventInfo.Id)">Registrati</a>
+                        }
+                        @if (!eventInfo.IsCancelled && !string.IsNullOrWhiteSpace(eventInfo.CallForPapersUrl) && IsCallForPapersOpen())
+                        {
+                            <a class="event-button event-button-secondary" href="@eventInfo.CallForPapersUrl" target="_blank" rel="noopener">Invia una proposta</a>
+                        }
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <nav class="event-subnav" role="tablist" aria-label="Sezioni dell'evento">
+            @foreach (var (key, label) in Tabs)
+            {
+                <button type="button" role="tab" class="event-subnav-tab @(ActiveTab == key ? "active" : string.Empty)" aria-selected="@(ActiveTab == key)" @onclick="() => activeTab = key">@label</button>
+            }
+        </nav>
+
+        <main>
+            @if (ActiveTab == "descrizione" && !string.IsNullOrWhiteSpace(eventInfo.Description))
+            {
+                <section id="descrizione" class="event-section event-intro">
+                    @((MarkupString)RichText.ToHtml(eventInfo.Description))
+                </section>
+            }
+
+            @if (ActiveTab == "agenda")
+            {
+            <section id="agenda" class="event-section event-agenda">
+                <h2>Agenda</h2>
+                @if (sessions.Count == 0)
+                {
+                    <p>L'agenda sarà pubblicata a breve.</p>
+                }
+                else
+                {
+                    <div class="event-room-tabs" role="tablist" aria-label="Aule dell'evento">
+                        @for (var index = 0; index < rooms.Count; index++)
+                        {
+                            var roomIndex = index;
+                            var room = rooms[roomIndex];
+                            <button id="room-tab-@roomIndex"
+                                    class="event-room-tab @(selectedRoomIndex == roomIndex ? "active" : string.Empty)"
+                                    type="button"
+                                    role="tab"
+                                    aria-selected="@(selectedRoomIndex == roomIndex)"
+                                    aria-controls="room-panel-@roomIndex"
+                                    @onclick="() => selectedRoomIndex = roomIndex">
+                                @room.Name
+                            </button>
+                        }
+                    </div>
+                    @for (var index = 0; index < rooms.Count; index++)
+                    {
+                        var room = rooms[index];
+                        <section id="room-panel-@index"
+                                 class="event-room"
+                                 role="tabpanel"
+                                 aria-labelledby="room-tab-@index"
+                                 hidden="@(selectedRoomIndex != index)"
+                                 tabindex="0">
+                            @foreach (var session in room.Sessions)
+                            {
+                                <article class="event-session">
+                                    <div class="event-session-time">@session.StartsAt.ToString("HH:mm")–@session.EndsAt.ToString("HH:mm")</div>
+                                    <div class="event-session-details">
+                                        <h4>@session.Title</h4>
+                                        @if (session.Speakers?.Count > 0)
+                                        {
+                                            <p class="event-speakers">
+                                                @for (var speakerIndex = 0; speakerIndex < session.Speakers.Count; speakerIndex++)
+                                                {
+                                                    var speaker = session.Speakers[speakerIndex];
+                                                    if (speakerIndex > 0)
+                                                    {
+                                                        <text>, </text>
+                                                    }
+                                                    if (speakerProfiles.TryGetValue(speaker.Id, out var profile))
+                                                    {
+                                                        <button type="button" class="speaker-name-link" @onclick="() => selectedSpeaker = profile">@profile.FullName</button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>@speaker.Name</span>
+                                                    }
+                                                }
+                                            </p>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(session.Description))
+                                        {
+                                            <p>@session.Description</p>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(session.VideoUrl) || !string.IsNullOrWhiteSpace(session.PresentationUrl) || !string.IsNullOrWhiteSpace(session.RepositoryUrl))
+                                        {
+                                            <div class="event-resource-links">
+                                                @if (!string.IsNullOrWhiteSpace(session.VideoUrl)) { <a href="@session.VideoUrl" target="_blank" rel="noopener">Video</a> }
+                                                @if (!string.IsNullOrWhiteSpace(session.PresentationUrl)) { <a href="@session.PresentationUrl" target="_blank" rel="noopener">Slide</a> }
+                                                @if (!string.IsNullOrWhiteSpace(session.RepositoryUrl)) { <a href="@session.RepositoryUrl" target="_blank" rel="noopener">Repository</a> }
+                                            </div>
+                                        }
+                                    </div>
+                                </article>
+                            }
+                        </section>
+                    }
+                }
+            </section>
+            }
+
+            @if (ActiveTab == "relatori" && speakerProfiles.Count > 0)
+            {
+                <section id="relatori" class="event-section event-speakers-section">
+                    <h2>Relatori</h2>
+                    <div class="event-speaker-grid">
+                        @foreach (var profile in speakerProfiles.Values.OrderBy(item => item.FullName, StringComparer.CurrentCultureIgnoreCase))
+                        {
+                            <button type="button" class="event-speaker-card" @onclick="() => selectedSpeaker = profile">
+                                @if (!string.IsNullOrWhiteSpace(profile.ProfilePictureUrl))
+                                {
+                                    <img src="@profile.ProfilePictureUrl" alt="" loading="lazy" />
+                                }
+                                <span>@profile.FullName</span>
+                                @if (!string.IsNullOrWhiteSpace(profile.TagLine)) { <small>@profile.TagLine</small> }
+                            </button>
+                        }
+                    </div>
+                </section>
+            }
+
+            @if (ActiveTab == "sponsor" && sponsors.Count > 0)
+            {
+                <section id="sponsor" class="event-section event-sponsors">
+                    <h2>Sponsor e partner</h2>
+                    <div class="event-sponsor-grid">
+                        @foreach (var sponsor in sponsors)
+                        {
+                            <a class="event-sponsor" href="@sponsor.Url" target="_blank" rel="noopener">
+                                @if (!string.IsNullOrWhiteSpace(sponsor.LogoUrl)) { <img src="@sponsor.LogoUrl" alt="Logo @sponsor.Name" /> }
+                                <span>@sponsor.Name</span><small>@sponsor.Tier</small>
+                            </a>
+                        }
+                    </div>
+                </section>
+            }
+        </main>
+    </div>
+
+    @if (selectedSpeaker is not null)
+    {
+        <div class="speaker-dialog-backdrop" role="presentation" @onclick="CloseSpeakerDialog" @onkeydown="HandleDialogKeydown">
+            <section class="speaker-dialog" role="dialog" aria-modal="true" aria-labelledby="speaker-dialog-title" @onclick:stopPropagation>
+                <button type="button" class="speaker-dialog-close" aria-label="Chiudi scheda relatore" autofocus @onclick="CloseSpeakerDialog">×</button>
+                @if (!string.IsNullOrWhiteSpace(selectedSpeaker.ProfilePictureUrl))
+                {
+                    <img class="speaker-dialog-image" src="@selectedSpeaker.ProfilePictureUrl" alt="" />
+                }
+                <div class="speaker-dialog-content">
+                    <p class="event-eyebrow">Relatore</p>
+                    <h2 id="speaker-dialog-title">@selectedSpeaker.FullName</h2>
+                    @if (!string.IsNullOrWhiteSpace(selectedSpeaker.TagLine))
+                    {
+                        <p class="speaker-tagline">@selectedSpeaker.TagLine</p>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(selectedSpeaker.Bio))
+                    {
+                        <p class="speaker-bio">@selectedSpeaker.Bio</p>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(selectedSpeaker.LinkedInUrl))
+                    {
+                        <a class="event-button" href="@selectedSpeaker.LinkedInUrl" target="_blank" rel="noopener noreferrer">Apri il profilo LinkedIn</a>
+                    }
+                    <a class="event-button" href="@Links.SpeakerProfile(selectedSpeaker.PublicProfileKey)" target="_blank" rel="noopener">Profilo speaker nella community</a>
+                    @if (!string.IsNullOrWhiteSpace(selectedSpeaker.SessionizeUrl))
+                    {
+                        <a class="event-button event-button-secondary" href="@selectedSpeaker.SessionizeUrl" target="_blank" rel="noopener noreferrer">Apri Sessionize</a>
+                    }
+                </div>
+            </section>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Year { get; set; }
+    [Parameter] public string Moniker { get; set; } = string.Empty;
+
+    private EventDefinition? eventInfo;
+    private IReadOnlyList<Session> sessions = [];
+    private IReadOnlyList<EventSponsor> sponsors = [];
+    private IReadOnlyList<RoomAgenda> rooms = [];
+    private Dictionary<Guid, EventSpeakerProfile> speakerProfiles = [];
+    private EventSpeakerProfile? selectedSpeaker;
+    private int selectedRoomIndex;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        eventInfo = await EventCatalog.GetAsync(Year, Moniker);
+        sessions = eventInfo is null ? [] : await EventCatalog.GetSessionsAsync(eventInfo.Id);
+        sponsors = eventInfo is null ? [] : await EventCatalog.GetSponsorsAsync(eventInfo);
+        if (eventInfo is null)
+        {
+            rooms = [];
+            speakerProfiles = [];
+            return;
+        }
+
+        rooms = sessions
+            .GroupBy(session => string.IsNullOrWhiteSpace(session.Room) ? "Aula da definire" : session.Room)
+            .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase)
+            .Select(group => new RoomAgenda(group.Key, group.OrderBy(session => session.StartsAt).ToArray()))
+            .ToArray();
+        selectedRoomIndex = 0;
+        speakerProfiles = (await EventCatalog.GetEventSpeakersAsync(eventInfo.Id))
+            .ToDictionary(speaker => speaker.Id);
+        SelectTabFromAddress();
+    }
+
+    private string? activeTab;
+
+    private IEnumerable<(string Key, string Label)> Tabs
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(eventInfo?.Description)) yield return ("descrizione", "Descrizione");
+            yield return ("agenda", "Agenda");
+            if (speakerProfiles.Count > 0) yield return ("relatori", "Relatori");
+            if (sponsors.Count > 0) yield return ("sponsor", "Sponsor");
+        }
+    }
+
+    // La scheda attiva può arrivare dall'indirizzo (es. /events/2026/x#agenda).
+    private string ActiveTab => activeTab is { } key && Tabs.Any(tab => tab.Key == key)
+        ? key
+        : Tabs.First().Key;
+
+    private void SelectTabFromAddress()
+    {
+        var fragment = new Uri(Navigation.Uri).Fragment.TrimStart('#');
+        activeTab = Tabs.Any(tab => tab.Key == fragment) ? fragment : null;
+    }
+
+    private string FormattedDate
+    {
+        get
+        {
+            var italian = System.Globalization.CultureInfo.GetCultureInfo("it-IT");
+            return DateTime.TryParseExact(eventInfo?.EventDate, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)
+                ? italian.TextInfo.ToTitleCase(date.ToString("dddd d MMMM yyyy", italian))
+                : eventInfo?.EventDate ?? string.Empty;
+        }
+    }
+
+    private void CloseSpeakerDialog() => selectedSpeaker = null;
+
+    private void HandleDialogKeydown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            CloseSpeakerDialog();
+        }
+    }
+
+    private sealed record RoomAgenda(string Name, IReadOnlyList<Session> Sessions);
+
+    private bool IsCallForPapersOpen()
+    {
+        if (!DateTimeOffset.TryParse(eventInfo?.CallForPapersOpenAt, out var openAt) ||
+            !DateTimeOffset.TryParse(eventInfo?.CallForPapersCloseAt, out var closeAt))
+        {
+            return false;
+        }
+
+        var now = ItalyTime.NowOffset;
+        return now >= openAt && now <= closeAt;
+    }
+}

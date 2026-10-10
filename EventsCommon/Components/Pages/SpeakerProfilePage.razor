@@ -1,0 +1,57 @@
+@page "/speakers/{SpeakerKey}"
+@inject EventCatalogService EventCatalog
+@inject ISiteLinks Links
+
+<PageTitle>@(profile?.FullName ?? "Relatore") · 1nn0va</PageTitle>
+
+@if (profile is null)
+{
+    <main class="event-shell">
+        <h1>Profilo relatore non disponibile</h1>
+        <p>Il profilo non esiste oppure non è associato a un evento pubblicato.</p>
+        <a href="@Links.Home">Torna agli eventi</a>
+    </main>
+}
+else
+{
+    <div class="event-site @(Links.TopbarComponent is null ? "" : "event-site-compact")">
+        @if (Links.TopbarComponent is { } topbar)
+        {
+            <DynamicComponent Type="topbar" />
+        }
+        <header class="speaker-list-header">
+            @if (Links.TopbarComponent is null)
+            {
+                <nav class="event-nav">
+                    <a class="event-brand" href="@Links.Home"><img src="/img/1nn0va.png" alt="1nn0va" /><span>Eventi</span></a>
+                    <a href="@Links.Home">Eventi</a>
+                    <a href="@Links.Account()">Area personale</a>
+                </nav>
+            }
+            <div class="speaker-list-heading">
+                <p class="event-eyebrow">Community 1nn0va</p>
+                <h1>@profile.FullName</h1>
+                @if (!string.IsNullOrWhiteSpace(profile.TagLine))
+                {
+                    <p class="speaker-tagline">@profile.TagLine</p>
+                }
+            </div>
+        </header>
+
+        <main class="speaker-list-content">
+            <SpeakerProfileView Profile="profile" />
+        </main>
+
+    </div>
+}
+
+@code {
+    [Parameter] public string SpeakerKey { get; set; } = string.Empty;
+
+    private PublicSpeakerProfile? profile;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        profile = await EventCatalog.GetPublicSpeakerProfileAsync(SpeakerKey);
+    }
+}

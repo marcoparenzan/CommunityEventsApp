@@ -1,0 +1,139 @@
+@using System.Globalization
+
+<div class="report-grid">
+    <div class="admin-report-scroll">
+        <table class="admin-report-table">
+            <thead>
+                <tr>
+                    @for (var column = 0; column < Headers.Count; column++)
+                    {
+                        var index = column;
+                        <th aria-sort="@(sortColumn == index ? (sortDescending ? "descending" : "ascending") : "none")">
+                            <button type="button" class="report-sort" @onclick="() => SortBy(index)">
+                                @Headers[index]<span aria-hidden="true">@(sortColumn == index ? (sortDescending ? " ▼" : " ▲") : string.Empty)</span>
+                            </button>
+                        </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @if (pageRows.Count == 0)
+                {
+                    <tr><td colspan="@Math.Max(1, Headers.Count)">Nessun dato.</td></tr>
+                }
+                @foreach (var row in pageRows)
+                {
+                    <tr>
+                        @for (var column = 0; column < Headers.Count; column++)
+                        {
+                            <td>@(column < row.Count ? row[column] : string.Empty)</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <nav class="report-grid-pager" aria-label="Paginazione tabella">
+        <span>@Rows.Count righe</span>
+        <label>
+            Righe per pagina
+            <select @bind="pageSize" @bind:after="ResetPage">
+                @foreach (var size in PageSizes)
+                {
+                    <option value="@size">@size</option>
+                }
+            </select>
+        </label>
+        <button type="button" @onclick="() => GoTo(page - 1)" disabled="@(page <= 0)">←</button>
+        <span>Pagina @(page + 1) di @pageCount</span>
+        <button type="button" @onclick="() => GoTo(page + 1)" disabled="@(page >= pageCount - 1)">→</button>
+    </nav>
+</div>
+
+@code {
+    private static readonly int[] PageSizes = [10, 25, 50, 100];
+
+    [Parameter, EditorRequired] public IReadOnlyList<string> Headers { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<IReadOnlyList<string>> Rows { get; set; } = [];
+
+    private IReadOnlyList<IReadOnlyList<string>>? lastRows;
+    private IReadOnlyList<IReadOnlyList<string>> sorted = [];
+    private IReadOnlyList<IReadOnlyList<string>> pageRows = [];
+    private int sortColumn = -1;
+    private bool sortDescending;
+    private int pageSize = 25;
+    private int page;
+    private int pageCount => Math.Max(1, (Rows.Count + pageSize - 1) / pageSize);
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(lastRows, Rows))
+        {
+            lastRows = Rows;
+            sortColumn = -1;
+            sortDescending = false;
+            page = 0;
+        }
+
+        Apply();
+    }
+
+    private void SortBy(int column)
+    {
+        if (sortColumn == column)
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortDescending = false;
+        }
+
+        page = 0;
+        Apply();
+    }
+
+    private void GoTo(int target)
+    {
+        page = target;
+        Apply();
+    }
+
+    private void ResetPage()
+    {
+        page = 0;
+        Apply();
+    }
+
+    private void Apply()
+    {
+        IEnumerable<IReadOnlyList<string>> query = Rows;
+        if (sortColumn >= 0)
+        {
+            var column = sortColumn;
+            var comparer = Comparer<IReadOnlyList<string>>.Create((left, right) =>
+                CompareCells(Cell(left, column), Cell(right, column)));
+            query = sortDescending
+                ? Rows.OrderByDescending(row => row, comparer)
+                : Rows.OrderBy(row => row, comparer);
+        }
+
+        sorted = query.ToArray();
+        page = Math.Clamp(page, 0, pageCount - 1);
+        pageRows = sorted.Skip(page * pageSize).Take(pageSize).ToArray();
+    }
+
+    private static string Cell(IReadOnlyList<string> row, int column) => column < row.Count ? row[column] : string.Empty;
+
+    private static int CompareCells(string left, string right)
+    {
+        if (decimal.TryParse(left, NumberStyles.Number, CultureInfo.InvariantCulture, out var l) &&
+            decimal.TryParse(right, NumberStyles.Number, CultureInfo.InvariantCulture, out var r))
+        {
+            return l.CompareTo(r);
+        }
+
+        return string.Compare(left, right, CultureInfo.CurrentCulture, CompareOptions.IgnoreCase);
+    }
+}

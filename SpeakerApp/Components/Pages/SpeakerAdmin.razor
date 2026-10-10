@@ -1,0 +1,200 @@
+@page "/speakers"
+@attribute [Authorize(Policy = "SuperUser")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject SpeakerManagementService SpeakerManagement
+@inject ILogger<SpeakerAdmin> Logger
+
+<PageTitle>Speaker · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell">
+    @if (speakers.Count > 0)
+    {
+        <nav class="admin-letter-tabs" role="tablist" aria-label="Filtra speaker per iniziale">
+            <button type="button" role="tab" class="@(selectedLetter is null ? "active" : null)" aria-selected="@(selectedLetter is null)" @onclick="() => selectedLetter = null">Tutti</button>
+            @foreach (var letter in letters)
+            {
+                var current = letter;
+                <button type="button" role="tab" class="@(selectedLetter == current ? "active" : null)" aria-selected="@(selectedLetter == current)" @onclick="() => selectedLetter = current">@current</button>
+            }
+        </nav>
+    }
+    @if (!string.IsNullOrWhiteSpace(message)) { <p role="status">@message</p> }
+    <section class="admin-create">
+        @if (speakers.Count == 0)
+        {
+            <p>Nessun profilo speaker configurato.</p>
+        }
+        else
+        {
+            <div class="admin-speaker-list">
+                @foreach (var speaker in visibleSpeakers)
+                {
+                    <article class="admin-speaker-row">
+                        <div>
+                            <strong>@speaker.FirstName @speaker.LastName</strong>
+                            <p>@speaker.Email@(string.IsNullOrWhiteSpace(speaker.Cellulare) ? string.Empty : $" · {speaker.Cellulare}")@(speaker.IsSuperUser ? " · Superutente" : string.Empty)@(speaker.LastEventDate is { } last ? $" · Ultimo evento: {last.Year}" : string.Empty)</p>
+                        </div>
+                        <label>
+                            <input type="checkbox"
+                                   checked="@speaker.CanCheckIn"
+                                   @onchange="args => SetCheckInPermissionAsync(speaker, Convert.ToBoolean(args.Value))" />
+                            Può gestire check-in utenti
+                        </label>
+                        <button type="button" @onclick="() => EditSpeaker(speaker)">Modifica</button>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+</main>
+</div>
+
+@if (editingSpeaker is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CloseSpeakerDialog">
+        <section class="admin-event-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-speaker-dialog-title" @onclick:stopPropagation>
+            <button class="admin-event-dialog-close" type="button" aria-label="Chiudi" @onclick="CloseSpeakerDialog" disabled="@savingSpeaker">×</button>
+            <h2 id="admin-speaker-dialog-title">Modifica speaker</h2>
+            <label>Nome <input @bind="speakerDraft.FirstName" maxlength="64" /></label>
+            <label>Cognome <input @bind="speakerDraft.LastName" maxlength="64" /></label>
+            <label class="admin-wide">Email <input @bind="speakerDraft.Email" maxlength="64" placeholder="&lt;notset&gt;" /></label>
+            <label class="admin-wide">Nome Sessionize <input @bind="speakerDraft.SessionizeName" maxlength="64" /></label>
+            <label class="admin-wide">Cellulare <input type="tel" @bind="speakerDraft.Cellulare" maxlength="32" autocomplete="off" /></label>
+            <p class="admin-help">Il nome Sessionize collega questo account agli speaker importati da Sessionize: deve coincidere con il nome del relatore e non può essere condiviso con un altro account. Con email &lt;notset&gt; lo speaker non può accedere.</p>
+            @if (!string.IsNullOrEmpty(speakerError))
+            {
+                <p class="admin-help" role="alert">@speakerError</p>
+            }
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CloseSpeakerDialog" disabled="@savingSpeaker">Annulla</button>
+                <button type="button" @onclick="SaveSpeakerAsync" disabled="@savingSpeaker">
+                    @(savingSpeaker ? "Salvataggio…" : "Salva speaker")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<SpeakerPermissionResponse> speakers = [];
+    private string message = string.Empty;
+    private string? selectedLetter;
+
+    private static string LetterOf(SpeakerPermissionResponse speaker)
+    {
+        var source = !string.IsNullOrWhiteSpace(speaker.LastName) ? speaker.LastName : speaker.FirstName;
+        var first = source.Trim().FirstOrDefault();
+        return char.IsLetter(first) ? char.ToUpperInvariant(first).ToString() : "#";
+    }
+
+    private IEnumerable<string> letters => speakers.Select(LetterOf).Distinct().OrderBy(letter => letter == "#").ThenBy(letter => letter, StringComparer.CurrentCulture);
+
+    private IEnumerable<SpeakerPermissionResponse> visibleSpeakers =>
+        selectedLetter is null ? speakers : speakers.Where(speaker => LetterOf(speaker) == selectedLetter);
+
+    protected override async Task OnInitializedAsync()
+    {
+        speakers = await SpeakerManagement.GetAllAsync();
+    }
+
+    private SpeakerPermissionResponse? editingSpeaker;
+    private UpdateSpeakerDraft speakerDraft = new();
+    private string speakerError = string.Empty;
+    private bool savingSpeaker;
+
+    private sealed class UpdateSpeakerDraft
+    {
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string SessionizeName { get; set; } = string.Empty;
+        public string Cellulare { get; set; } = string.Empty;
+    }
+
+    private void EditSpeaker(SpeakerPermissionResponse speaker)
+    {
+        editingSpeaker = speaker;
+        speakerError = string.Empty;
+        speakerDraft = new UpdateSpeakerDraft
+        {
+            FirstName = speaker.FirstName,
+            LastName = speaker.LastName,
+            Email = speaker.Email,
+            SessionizeName = speaker.SessionizeName,
+            Cellulare = speaker.Cellulare
+        };
+    }
+
+    private void CloseSpeakerDialog()
+    {
+        if (!savingSpeaker)
+        {
+            editingSpeaker = null;
+        }
+    }
+
+    private async Task SaveSpeakerAsync()
+    {
+        if (editingSpeaker is not { } speaker || savingSpeaker)
+        {
+            return;
+        }
+
+        savingSpeaker = true;
+        speakerError = string.Empty;
+        try
+        {
+            var saved = await SpeakerManagement.UpdateAsync(
+                speaker.Id,
+                new UpdateSpeakerRequest(speakerDraft.FirstName, speakerDraft.LastName, speakerDraft.Email, speakerDraft.SessionizeName, speakerDraft.Cellulare));
+            if (!saved)
+            {
+                speakerError = "Il profilo speaker non è stato trovato.";
+                return;
+            }
+
+            speakers = await SpeakerManagement.GetAllAsync();
+            message = $"Speaker {speakerDraft.FirstName.Trim()} {speakerDraft.LastName.Trim()} aggiornato.";
+            editingSpeaker = null;
+        }
+        catch (InvalidOperationException exception)
+        {
+            speakerError = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not update speaker {SpeakerId}.", speaker.Id);
+            speakerError = "Non è stato possibile salvare lo speaker.";
+        }
+        finally
+        {
+            savingSpeaker = false;
+        }
+    }
+
+    private async Task SetCheckInPermissionAsync(SpeakerPermissionResponse speaker, bool canCheckIn)
+    {
+        try
+        {
+            if (!await SpeakerManagement.SetCanCheckInAsync(speaker.Id, canCheckIn))
+            {
+                message = "Il profilo speaker non è stato trovato.";
+                return;
+            }
+
+            speakers = await SpeakerManagement.GetAllAsync();
+            message = $"Permesso check-in aggiornato per {speaker.FirstName} {speaker.LastName}.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not update check-in permission for speaker {SpeakerId}.", speaker.Id);
+            message = "Non è stato possibile aggiornare il permesso check-in.";
+        }
+    }
+}

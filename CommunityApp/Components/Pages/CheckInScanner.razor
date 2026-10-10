@@ -1,0 +1,189 @@
+@page "/checkin/scan"
+@attribute [Authorize(Policy = "Participant")]
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@using System.Text.RegularExpressions
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject EventCatalogService EventCatalog
+@inject ILogger<CheckInScanner> Logger
+
+<PageTitle>Scansiona check-in · 1nn0va</PageTitle>
+
+<main class="account-site checkin-site">
+    <AccountTopbar />
+    <section class="account-content">
+        <p>Accedi con l’account con cui ti sei registrato, consenti l’uso della fotocamera e inquadra il QR dell’evento.</p>
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+        }
+        <section class="account-card checkin-scanner-card">
+            <video @ref="videoElement" class="checkin-scanner-video" aria-label="Anteprima fotocamera per la scansione del QR" playsinline muted></video>
+            <div class="checkin-scanner-actions">
+                <button class="event-button" type="button" @onclick="StartScannerAsync" disabled="@busy">
+                    @(scannerStarted ? "Riavvia scansione" : "Avvia fotocamera")
+                </button>
+                @if (scannerStarted)
+                {
+                    <button class="checkin-scanner-stop" type="button" @onclick="StopScannerAsync">Ferma fotocamera</button>
+                }
+            </div>
+            <p class="account-help">Inquadra il QR stampato all’evento: contiene un codice segreto che cambia a ogni stampa. Il check-in viene registrato solo per il tuo account e se hai una registrazione confermata.</p>
+        </section>
+        <a href="/account">Torna all’area personale</a>
+    </section>
+</main>
+
+@code {
+    private ElementReference videoElement;
+    private DotNetObjectReference<CheckInScanner>? dotNetReference;
+    private string message = string.Empty;
+    private bool scannerStarted;
+    private bool busy;
+    private bool isError;
+
+    private async Task StartScannerAsync()
+    {
+        busy = true;
+        isError = false;
+        try
+        {
+            dotNetReference ??= DotNetObjectReference.Create(this);
+            var result = await JS.InvokeAsync<ScannerResult>(
+                "eventsCheckIn.startScanner",
+                videoElement,
+                dotNetReference);
+            scannerStarted = result.Ok;
+            message = result.Message;
+            isError = !result.Ok;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not start the participant check-in QR scanner.");
+            scannerStarted = false;
+            message = "Fotocamera non disponibile. Verifica i permessi e che la pagina sia aperta tramite HTTPS.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task StopScannerAsync()
+    {
+        await JS.InvokeVoidAsync("eventsCheckIn.stopScanner", videoElement);
+        scannerStarted = false;
+    }
+
+    [JSInvokable]
+    public async Task OnQrCodeDetected(string rawValue)
+    {
+        var read = ReadQr(rawValue, out var eventId, out var signature);
+        if (read != QrRead.Valid)
+        {
+            // La fotocamera resta accesa: basta inquadrare il QR giusto.
+            message = read == QrRead.MissingSignature
+                ? "Questo QR è vecchio o incompleto (manca la firma). Chiedi agli organizzatori il QR stampato più recente."
+                : "Questo non è il QR del check-in 1nn0va: continua a inquadrare quello dell'evento.";
+            isError = true;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        // QR valido: la scansione è finita, si ferma la fotocamera e si registra il check-in.
+        await JS.InvokeVoidAsync("eventsCheckIn.stopScanner", videoElement);
+        scannerStarted = false;
+        busy = true;
+        isError = false;
+        message = "QR letto: registro il check-in…";
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsCheckIn.authenticatedSelfCheckIn",
+                eventId,
+                signature);
+            message = result.Message;
+            isError = !result.Ok || result.Warning;
+            if (result.Ok)
+            {
+                // Conferma ricevuta: si lascia leggere il messaggio un istante e si passa all'area personale.
+                busy = false;
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(1500);
+                Navigation.NavigateTo("/account?checkin=ok");
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Authenticated QR check-in failed for event {EventId}.", eventId);
+            message = "Non è stato possibile completare il check-in. Verifica la registrazione e riprova.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public Task OnScannerError(string errorMessage)
+    {
+        scannerStarted = false;
+        isError = true;
+        message = errorMessage;
+        return Task.CompletedTask;
+    }
+
+    private enum QrRead { NotCheckIn, MissingSignature, Valid }
+
+    // Il QR stampato contiene l'indirizzo con la firma segreta: /checkin/event/{id}?s={firma}.
+    // L'indirizzo del sito non si confronta (può essere raggiunto da più nomi): conta il percorso e la firma,
+    // che il server controlla.
+    private static QrRead ReadQr(string rawValue, out int eventId, out Guid signature)
+    {
+        eventId = 0;
+        signature = Guid.Empty;
+        if (!Uri.TryCreate(rawValue?.Trim(), UriKind.Absolute, out var scannedUri))
+        {
+            return QrRead.NotCheckIn;
+        }
+
+        var match = Regex.Match(scannedUri.AbsolutePath, "^/checkin/event/(?<eventId>[1-9][0-9]*)/?$");
+        if (!match.Success || !int.TryParse(match.Groups["eventId"].Value, out eventId))
+        {
+            return QrRead.NotCheckIn;
+        }
+
+        return Guid.TryParse(System.Web.HttpUtility.ParseQueryString(scannedUri.Query)["s"], out signature)
+            ? QrRead.Valid
+            : QrRead.MissingSignature;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (scannerStarted)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("eventsCheckIn.stopScanner", videoElement);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        dotNetReference?.Dispose();
+    }
+
+    private sealed record ScannerResult(bool Ok, string Message);
+    private sealed record ClientResponse(bool Ok, string Message, bool Warning = false);
+}

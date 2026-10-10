@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Eventi 1nn0va, agenda e informazioni">
+    <meta name="author" content="Marco Parenzan">
+    <title>1nn0vAI 2026 Pordenone</title>
+    <base href="/" />
+    <link rel="icon" type="image/png" href="@Assets["favicon.png"]" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#17195f" />
+    <link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="1nn0va Eventi" />
+
+    <ImportMap />
+    <HeadOutlet @rendermode="InteractiveServer" />
+    <!-- Bootstrap -->
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["css/tailwind.generated.css"]" />
+    <link rel="stylesheet" href="@Assets["css/style.css"]" />
+    <link rel="stylesheet" href="@Assets["css/events.css"]" />
+    <link rel="stylesheet" href="@Assets["css/themify-icons.css"]" />
+    <link rel="stylesheet" href="@Assets["css/dosis-font.css"]" />
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+      <![endif]-->
+</head>
+<body id="page-top" data-spy="scroll" data-target=".side-menu">
+    <Routes @rendermode="InteractiveServer" />
+    <script src="js/account.js"></script>
+    <script src="js/pwa.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+
+    <!-- End: Footer -->
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="js/jquery.min.js"></script>
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+    <script src="js/bootstrap.min.js"></script>
+    <script src="js/jquery.easing.min.js"></script>
+    <script src="js/scrolling-nav.js"></script>
+    <script src="js/validator.js"></script>
+
+</body>
+</html>

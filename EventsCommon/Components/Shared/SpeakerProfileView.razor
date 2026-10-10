@@ -1,0 +1,50 @@
+@inject ISiteLinks Links
+
+<article class="speaker-card speaker-public-profile">
+    @if (!string.IsNullOrWhiteSpace(Profile.ProfilePictureUrl))
+    {
+        <img src="@Profile.ProfilePictureUrl" alt="Foto di @Profile.FullName" />
+    }
+    <div>
+        @if (!string.IsNullOrWhiteSpace(Profile.Bio))
+        {
+            <p class="speaker-bio">@Profile.Bio</p>
+        }
+        <div class="speaker-public-links">
+            @if (!string.IsNullOrWhiteSpace(Profile.SessionizeUrl))
+            {
+                <a href="@Profile.SessionizeUrl" target="_blank" rel="noopener noreferrer">Profilo Sessionize ↗</a>
+            }
+            @if (!string.IsNullOrWhiteSpace(Profile.LinkedInUrl))
+            {
+                <a href="@Profile.LinkedInUrl" target="_blank" rel="noopener noreferrer">Profilo LinkedIn ↗</a>
+            }
+        </div>
+    </div>
+</article>
+
+<section class="speaker-public-sessions">
+    @if (Profile.Sessions.Count == 0)
+    {
+        <p>Non ci sono ancora sessioni pubblicate associate a questo profilo.</p>
+    }
+    else
+    {
+        <div class="speaker-public-session-list">
+            @foreach (var session in Profile.Sessions)
+            {
+                <article>
+                    <p class="event-eyebrow">@session.EventDate · @session.Room</p>
+                    <h3>@session.Title</h3>
+                    <a href="@Links.EventPage(session.Year, session.EventMoniker, "#agenda")">
+                        @session.EventName <span aria-hidden="true">→</span>
+                    </a>
+                </article>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public PublicSpeakerProfile Profile { get; set; } = default!;
+}

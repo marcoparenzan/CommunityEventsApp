@@ -1,0 +1,360 @@
+@page "/access"
+@page "/"
+@page "/my-events"
+@page "/my-sessions"
+@implements IDisposable
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+@using EventsCommon.Models
+@inject IJSRuntime JS
+@inject EventCatalogService EventCatalog
+@inject CommunityLinks Community
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ILogger<SpeakerAccess> Logger
+
+<PageTitle>Area speaker · 1nn0va</PageTitle>
+
+<main class="account-site">
+    <AccountTopbar />
+
+    <section class="account-content">
+        @if (!accountChecked)
+        {
+            <p role="status">Controllo la tua sessione…</p>
+        }
+        else if (speakerAccount is not null)
+        {
+            <section class="account-card account-dashboard speaker-home">
+                @if (activeTab == "profile")
+                {
+                    @if (publicProfile is not null)
+                    {
+                        <SpeakerProfileView Profile="publicProfile" />
+                    }
+                    else
+                    {
+                        <p class="account-help">
+                            Il profilo pubblico sarà disponibile quando sarai associato a un evento pubblicato.
+                            @speakerAccount.Events.Count @(speakerAccount.Events.Count == 1 ? "evento" : "eventi") ·
+                            @speakerSessions.Count @(speakerSessions.Count == 1 ? "sessione" : "sessioni")
+                        </p>
+                    }
+                }
+                else if (activeTab == "events")
+                {
+                    <MyEventsPanel />
+                }
+                else
+                {
+                    @if (speakerSessions.Count == 0)
+                    {
+                        <p class="account-help">Non risultano sessioni assegnate al tuo profilo. Dopo la sync Sessionize, verifica che “SessionizeName” corrisponda al tuo nome in Sessionize.</p>
+                    }
+                    else
+                    {
+                        @foreach (var session in speakerSessions.Skip(sessionPage * PageSize).Take(PageSize))
+                        {
+                            <article class="speaker-session-links">
+                                <div>
+                                    <h3>@session.Title</h3>
+                                    <p><strong>@session.EventName</strong> · @session.EventDate · @session.StartsAt.ToItaly().ToString("HH:mm") · @session.Room</p>
+                                    @if (!string.IsNullOrWhiteSpace(session.PresentationUrl) || !string.IsNullOrWhiteSpace(session.RepositoryUrl))
+                                    {
+                                        <p class="speaker-session-resource-status">
+                                            @if (!string.IsNullOrWhiteSpace(session.PresentationUrl)) { <span>Slide</span> }
+                                            @if (!string.IsNullOrWhiteSpace(session.RepositoryUrl)) { <span>GitHub</span> }
+                                        </p>
+                                    }
+                                </div>
+                                <button class="speaker-session-edit" type="button" @onclick="() => EditSession(session)">
+                                    Modifica link
+                                </button>
+                            </article>
+                        }
+                        @Pager(speakerSessions.Count, sessionPage, page => sessionPage = page)
+                    }
+                }
+
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+                }
+            </section>
+        }
+        else
+        {
+            <h1>Accedi all’area speaker</h1>
+            <section class="account-card">
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+                }
+                @if (!pinRequested)
+                {
+                    <p>Inserisci l’email associata al tuo profilo speaker. Se il profilo è già presente, riceverai un PIN di 16 cifre e un link per accedere direttamente.</p>
+                    <p class="account-help">L’area speaker non consente la registrazione di nuovi speaker. Il primo superutente deve essere predisposto nel database prima dell’accesso; le sessioni appariranno dopo la sync Sessionize e l’associazione del profilo.</p>
+                    <form @onsubmit="RequestPinAsync" @onsubmit:preventDefault>
+                        <label for="speaker-email">Email speaker</label>
+                        <input id="speaker-email"
+                               type="email"
+                               @bind="email"
+                               autocomplete="email"
+                               required
+                               maxlength="128" />
+                        <button class="event-button" type="submit" disabled="@busy">
+                            @(busy ? "Invio…" : "Invia PIN")
+                        </button>
+                    </form>
+                }
+                else
+                {
+                    <p>Se l’indirizzo <strong>@email</strong> corrisponde a uno speaker, abbiamo inviato un’email: apri il link che contiene oppure inserisci qui il PIN.</p>
+                    <form @onsubmit="VerifyPinAsync" @onsubmit:preventDefault>
+                        <label for="speaker-pin">PIN ricevuto via email</label>
+                        <input id="speaker-pin"
+                               @bind="pin"
+                               inputmode="numeric"
+                               autocomplete="one-time-code"
+                               required
+                               minlength="16"
+                               maxlength="16"
+                               pattern="[0-9]{16}" />
+                        <button class="event-button" type="submit" disabled="@busy">
+                            @(busy ? "Verifica…" : "Verifica e accedi")
+                        </button>
+                    </form>
+                    <p><button type="button" class="account-past-toggle" @onclick="ChangeEmail" disabled="@busy">Cambia email o richiedi un nuovo PIN</button></p>
+                }
+                <p><a href="@Community.Url("account")">Sei un partecipante? Vai all’area personale.</a></p>
+            </section>
+        }
+    </section>
+
+    @if (editingSession is not null)
+    {
+        <div class="speaker-edit-dialog-backdrop" @onclick="CloseSessionEditor">
+            <section class="speaker-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="speaker-session-dialog-title" @onclick:stopPropagation>
+                <button class="speaker-edit-dialog-close" type="button" aria-label="Chiudi" @onclick="CloseSessionEditor">×</button>
+                <p class="event-eyebrow">@editingSession.EventName · @editingSession.EventDate</p>
+                <h2 id="speaker-session-dialog-title">@editingSession.Title</h2>
+                <p>@editingSession.StartsAt.ToItaly().ToString("HH:mm") · @editingSession.Room</p>
+                <label>
+                    Link alle slide
+                    <input type="url" @bind="editingSession.PresentationUrl" maxlength="512" placeholder="https://…" />
+                </label>
+                <label>
+                    Link GitHub
+                    <input type="url" @bind="editingSession.RepositoryUrl" maxlength="512" placeholder="https://github.com/…" />
+                </label>
+                <div class="speaker-edit-dialog-actions">
+                    <button class="event-button" type="button" @onclick="CloseSessionEditor" disabled="@busy">Annulla</button>
+                    <button class="event-button" type="button" @onclick="SaveSessionLinksAsync" disabled="@busy">
+                        @(busy ? "Salvataggio…" : "Salva link")
+                    </button>
+                </div>
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private string email = string.Empty;
+    private string pin = string.Empty;
+    private string message = string.Empty;
+    private bool accountChecked;
+    private bool pinRequested;
+    private bool busy;
+    private bool isError;
+    private bool isSuperUser;
+    private bool canCheckIn;
+    private SpeakerAccountResponse? speakerAccount;
+    private IReadOnlyList<SpeakerSessionEditModel> speakerSessions = [];
+    private PublicSpeakerProfile? publicProfile;
+    private SpeakerSessionEditModel? editingSession;
+    private const int PageSize = 5;
+    private string activeTab
+    {
+        get
+        {
+            var path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+            return path.EndsWith("/my-events", StringComparison.OrdinalIgnoreCase) ? "events"
+                : path.EndsWith("/my-sessions", StringComparison.OrdinalIgnoreCase) ? "sessions"
+                : "profile";
+        }
+    }
+    private int eventPage;
+    private int sessionPage;
+
+    private RenderFragment Pager(int count, int current, Action<int> setPage) => @<text>
+        @if (count > PageSize)
+        {
+            var pages = (count + PageSize - 1) / PageSize;
+            <nav class="speaker-pager" aria-label="Paginazione">
+                <button type="button" disabled="@(current == 0)" @onclick="() => setPage(current - 1)">← Precedenti</button>
+                <span>Pagina @(current + 1) di @pages</span>
+                <button type="button" disabled="@(current >= pages - 1)" @onclick="() => setPage(current + 1)">Successivi →</button>
+            </nav>
+        }
+    </text>;
+
+    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
+
+    // Le rotte /, /my-events e /my-sessions usano la stessa istanza del componente:
+    // senza questo il contenuto non si aggiorna quando cambia solo l'indirizzo.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isSuperUser = authenticationState.User.HasClaim("is_super_user", "true");
+        canCheckIn = authenticationState.User.HasClaim("can_check_in", "true");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            speakerAccount = await JS.InvokeAsync<SpeakerAccountResponse?>("eventsSpeaker.account");
+            if (speakerAccount is not null)
+            {
+                email = speakerAccount.Email;
+                var sessions = await JS.InvokeAsync<List<SpeakerSessionResponse>>("eventsSpeaker.sessions");
+                speakerSessions = sessions.Select(session => new SpeakerSessionEditModel(session)).ToArray();
+                publicProfile = string.IsNullOrWhiteSpace(speakerAccount.PublicProfileKey)
+                    ? null
+                    : await EventCatalog.GetPublicSpeakerProfileAsync(speakerAccount.PublicProfileKey);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the signed-in speaker account.");
+            message = "Non è stato possibile verificare la sessione speaker. Ricarica la pagina e riprova.";
+            isError = true;
+        }
+
+        accountChecked = true;
+        StateHasChanged();
+    }
+
+    private void ChangeEmail()
+    {
+        pinRequested = false;
+        pin = string.Empty;
+        message = string.Empty;
+    }
+
+    private async Task RequestPinAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsSpeaker.requestPin", email);
+            SetResponse(result);
+            pinRequested = result.Ok;
+        });
+    }
+
+    private async Task VerifyPinAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsSpeaker.verifyPin", new { email, pin });
+            SetResponse(result);
+            if (result.Ok)
+            {
+                Navigation.NavigateTo("/", forceLoad: true);
+            }
+        });
+    }
+
+    private void EditSession(SpeakerSessionEditModel session)
+    {
+        editingSession = session;
+    }
+
+    private void CloseSessionEditor()
+    {
+        if (!busy)
+        {
+            editingSession = null;
+        }
+    }
+
+    private async Task SaveSessionLinksAsync()
+    {
+        var session = editingSession;
+        if (session is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsSpeaker.updateSessionLinks",
+                new
+                {
+                    eventId = session.EventId,
+                    sessionizeSessionId = session.SessionizeSessionId,
+                    presentationUrl = session.PresentationUrl,
+                    repositoryUrl = session.RepositoryUrl
+                });
+            SetResponse(result);
+            if (result.Ok)
+            {
+                editingSession = null;
+            }
+        });
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        busy = true;
+        isError = false;
+        message = string.Empty;
+        try
+        {
+            await action();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "A speaker authentication action failed.");
+            message = "L’operazione non è riuscita. Riprova tra poco.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void SetResponse(ClientResponse result)
+    {
+        message = result.Message;
+        isError = !result.Ok || result.Warning;
+    }
+
+    private sealed record ClientResponse(bool Ok, string Message, bool Warning = false);
+
+    private sealed class SpeakerSessionEditModel(SpeakerSessionResponse session)
+    {
+        public int EventId { get; } = session.EventId;
+        public string EventName { get; } = session.EventName;
+        public string EventDate { get; } = session.EventDate;
+        public string SessionizeSessionId { get; } = session.SessionizeSessionId;
+        public string Title { get; } = session.Title;
+        public string Room { get; } = session.Room;
+        public DateTimeOffset StartsAt { get; } = session.StartsAt;
+        public string PresentationUrl { get; set; } = session.PresentationUrl;
+        public string RepositoryUrl { get; set; } = session.RepositoryUrl;
+    }
+}

@@ -1,0 +1,51 @@
+@baseUrl = https://localhost:5001
+@eventToken = 00000000-0000-0000-0000-000000000001
+@eventId = 1
+@registrationId = 1
+@emailToken = paste-the-email-token-here
+
+### Public QR self check-in; the event token is printed in the staff page
+POST {{baseUrl}}/api/checkin/{{eventToken}}
+Content-Type: application/json
+
+{
+  "email": "participant@example.it",
+  "isEatingPizza": true,
+  "lactoseIntolerant": false
+}
+
+### Confirm using the one-time token from the confirmation email
+POST {{baseUrl}}/api/checkin/confirm
+Content-Type: application/json
+
+{
+  "token": "{{emailToken}}"
+}
+
+### Request an event registration from an authenticated account
+POST {{baseUrl}}/api/events/{{eventId}}/register
+Content-Type: application/json
+
+{
+  "isEatingPizza": true,
+  "lactoseIntolerant": true
+}
+
+### List event participants (CanCheckIn or SuperUser)
+GET {{baseUrl}}/api/speaker/events/{{eventId}}/attendees
+
+### Add a participant (CanCheckIn or SuperUser)
+POST {{baseUrl}}/api/speaker/events/{{eventId}}/attendees
+Content-Type: application/json
+
+{
+  "email": "new-participant@example.it",
+  "isEatingPizza": false,
+  "lactoseIntolerant": false
+}
+
+### Manually check in a confirmed participant (event day only)
+POST {{baseUrl}}/api/speaker/events/{{eventId}}/attendees/{{registrationId}}/check-in
+Content-Type: application/json
+
+{}

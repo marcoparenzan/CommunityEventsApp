@@ -1,0 +1,71 @@
+@page "/account/confirm"
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<LoginConfirm> Logger
+
+<PageTitle>Conferma accesso · 1nn0va</PageTitle>
+
+<main class="account-site">
+    <AccountTopbar />
+
+    <section class="account-content">
+        <h1>Conferma l’accesso</h1>
+        <section class="account-card">
+            @if (!string.IsNullOrWhiteSpace(message))
+            {
+                <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+            }
+            @if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(Pin))
+            {
+                <p>Il link non è completo. Torna alla pagina di accesso e richiedi un nuovo PIN.</p>
+                <p><a class="event-button" href="/account">Vai all’accesso</a></p>
+            }
+            else
+            {
+                <p>Stai per accedere come <strong>@Email</strong>. Premi il pulsante per confermare.</p>
+                <button class="event-button" type="button" @onclick="ConfirmAsync" disabled="@busy">@(busy ? "Accesso…" : "Accedi")</button>
+                <p class="account-help">Se non hai chiesto tu di accedere, chiudi questa pagina.</p>
+            }
+        </section>
+    </section>
+</main>
+
+@code {
+    [SupplyParameterFromQuery(Name = "email")] public string? Email { get; set; }
+    [SupplyParameterFromQuery(Name = "pin")] public string? Pin { get; set; }
+
+    private string message = string.Empty;
+    private bool isError;
+    private bool busy;
+
+    private async Task ConfirmAsync()
+    {
+        busy = true;
+        message = string.Empty;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsAccount.verifyPin", new { email = Email, pin = Pin });
+            if (result.Ok)
+            {
+                Navigation.NavigateTo("/account", forceLoad: true);
+                return;
+            }
+
+            message = "Il link non è più valido o il PIN è scaduto. Richiedi un nuovo PIN dalla pagina di accesso.";
+            isError = true;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not confirm the sign-in link.");
+            message = "L’operazione non è riuscita. Riprova tra poco.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private sealed record ClientResponse(bool Ok, string Message, bool Warning = false);
+}

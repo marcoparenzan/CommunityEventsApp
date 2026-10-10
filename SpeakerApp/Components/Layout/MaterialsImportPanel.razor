@@ -1,0 +1,92 @@
+@inject MaterialsImportService MaterialsImport
+@inject ILogger<MaterialsImportPanel> Logger
+
+<p class="import-help">
+    Colonne: <strong>Cognome, Nome, Email</strong> dello speaker (oppure <strong>Session Id</strong> / <strong>Titolo</strong> della sessione), più i link HTTPS in
+    <strong>Slide</strong> e <strong>Repo</strong>.
+    Le righe vuote o senza link vengono saltate e le celle vuote non cancellano i link esistenti. Si aggiornano solo le sessioni dell’evento scelto;
+    se uno speaker ha più sessioni nello stesso evento serve anche Session Id o Titolo.
+</p>
+<ImportInput OnData="OnDataAsync" Disabled="@busy" Placeholder="Cognome;Nome;Email;Slide;Repo" />
+@if (!string.IsNullOrEmpty(result)) { <p role="status">@result</p> }
+@if (!string.IsNullOrEmpty(error)) { <p class="admin-help" role="alert">@error</p> }
+@if (items is not null)
+{
+    <p><strong>@items.Count(i => i.Update)</strong> da aggiornare · @items.Count(i => i.Status == "Invariato") invariate · @items.Count(i => i.Status is "Non trovata" or "Ambigua" or "Più sessioni" or "Non valido" or "Duplicata") da controllare</p>
+    <div class="admin-import-list">
+        @foreach (var item in items.OrderBy(i => i.Update ? 0 : i.Status == "Invariato" ? 2 : 1).ThenBy(i => i.Label))
+        {
+            <article class="admin-speaker-row">
+                <div>
+                    <strong>@item.Label</strong> · @item.Status
+                    <p>@(string.IsNullOrEmpty(item.SessionTitle) ? string.Empty : $"{item.SessionTitle}{(string.IsNullOrEmpty(item.Note) ? string.Empty : " · ")}")@item.Note</p>
+                </div>
+            </article>
+        }
+    </div>
+    <p><button type="button" class="event-button" @onclick="ConfirmAsync" disabled="@(busy || !items.Any(i => i.Update))">@(busy ? "Attendere…" : "Importa")</button></p>
+}
+
+@code {
+    [Parameter] public int EventId { get; set; }
+
+    private IReadOnlyList<MaterialsImportRow>? rows;
+    private IReadOnlyList<MaterialsImportItem>? items;
+    private string error = string.Empty;
+    private string result = string.Empty;
+    private bool busy;
+
+    private async Task OnDataAsync((byte[] Data, string Name) input)
+    {
+        error = string.Empty;
+        result = string.Empty;
+        rows = null;
+        items = null;
+        busy = true;
+        try
+        {
+            using var stream = new MemoryStream(input.Data);
+            rows = MaterialsImportService.Parse(stream, input.Name);
+            items = await MaterialsImport.AnalyzeAsync(rows, EventId);
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not read the materials import data.");
+            error = "Non è stato possibile leggere i dati. Controlla il formato (.xlsx, .csv o testo CSV, massimo 5 MB).";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (rows is null || busy)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            var updated = await MaterialsImport.ImportAsync(rows, EventId);
+            result = $"Importazione completata: {updated} sessioni aggiornate.";
+            rows = null;
+            items = null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Materials import failed.");
+            error = "L’importazione non è riuscita: nessuna modifica è stata salvata.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

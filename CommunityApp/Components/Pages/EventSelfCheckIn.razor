@@ -1,0 +1,119 @@
+@page "/checkin/{EventToken:guid}"
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject IJSRuntime JS
+@inject ILogger<EventSelfCheckIn> Logger
+
+<PageTitle>Check-in · 1nn0va</PageTitle>
+
+<main class="account-site checkin-site">
+    <header class="account-topbar">
+        <a class="account-brand" href="/"><img src="/img/1nn0va.png" alt="1nn0va" /><span>Eventi</span></a>
+    </header>
+    <section class="account-content">
+        <p class="event-eyebrow">Check-in partecipanti</p>
+        @if (eventInfo is null)
+        {
+            <h1>Evento non disponibile</h1>
+            <p role="alert">Il link QR non corrisponde a un evento pubblicato e aperto al check-in.</p>
+        }
+        else
+        {
+            <h1>@eventInfo.Name</h1>
+            <p>@eventInfo.EventDate</p>
+            @if (!isEventDay)
+            {
+                <section class="account-card">
+                    <p>Il check-in self-service sarà disponibile il giorno dell’evento. Se devi registrarti in anticipo, accedi alla tua <a href="/account">area personale</a>.</p>
+                </section>
+            }
+            else
+            {
+                <section class="account-card">
+                    @if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+                    }
+                    <p>Inserisci la tua email: riceverai un link di conferma. Il check-in sarà completato solo dopo aver premuto il pulsante presente nell’email.</p>
+                    <form @onsubmit="RequestCheckInAsync" @onsubmit:preventDefault>
+                        <label for="checkin-email">Email</label>
+                        <input id="checkin-email" type="email" @bind="email" autocomplete="email" required maxlength="128" />
+                        <label class="account-consent">
+                            <input type="checkbox" @bind="isEatingPizza" @bind:after="UpdateDietaryPreference" />
+                            Mi fermo a mangiare la pizza.
+                        </label>
+                        @if (isEatingPizza)
+                        {
+                            <label class="account-consent">
+                                <input type="checkbox" @bind="lactoseIntolerant" />
+                                Ho un’intolleranza al lattosio.
+                            </label>
+                        }
+                        <button class="event-button" type="submit" disabled="@busy">@(busy ? "Invio…" : "Invia email di conferma")</button>
+                    </form>
+                </section>
+            }
+        }
+    </section>
+</main>
+
+@code {
+    [Parameter]
+    public Guid EventToken { get; set; }
+
+    private EventDefinition? eventInfo;
+    private string email = string.Empty;
+    private string message = string.Empty;
+    private bool isEatingPizza;
+    private bool lactoseIntolerant;
+    private bool busy;
+    private bool isError;
+
+    private bool isEventDay =>
+        eventInfo is not null &&
+        DateOnly.TryParse(eventInfo.EventDate, out var eventDate) &&
+        eventDate == DateOnly.FromDateTime(ItalyTime.Today);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var upcomingEvents = await EventCatalog.GetUpcomingAsync(ItalyTime.Today);
+        eventInfo = upcomingEvents.FirstOrDefault(item => item.CheckInToken == EventToken);
+    }
+
+    private void UpdateDietaryPreference()
+    {
+        if (!isEatingPizza)
+        {
+            lactoseIntolerant = false;
+        }
+    }
+
+    private async Task RequestCheckInAsync()
+    {
+        busy = true;
+        message = string.Empty;
+        isError = false;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsCheckIn.request",
+                EventToken,
+                new { email, isEatingPizza, lactoseIntolerant });
+            message = result.Message;
+            isError = !result.Ok || result.Warning;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "The public self check-in request failed for event token {EventToken}.", EventToken);
+            message = "Non è stato possibile inviare la richiesta. Riprova o chiedi aiuto allo staff.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private sealed record ClientResponse(bool Ok, string Message, bool Warning = false);
+}

@@ -1,0 +1,860 @@
+@page "/events"
+@attribute [Authorize(Policy = "SuperUser")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject EventCheckInService EventCheckIn
+@inject IJSRuntime JS
+@inject CommunityLinks Community
+@inject ILogger<EventAdmin> Logger
+@inject EventTemplateService Templates
+
+<PageTitle>Gestione eventi</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell">
+    @if (!string.IsNullOrWhiteSpace(message)) { <p role="status">@message</p> }
+    <div class="admin-events-heading">
+        <h2>Eventi configurati</h2>
+        <button type="button" class="admin-event-create-button" @onclick="NewEvent">Nuovo evento</button>
+    </div>
+    <div class="admin-events">
+        @if (events.Count == 0)
+        {
+            <section class="account-card">
+                <p>Il database configurato non contiene ancora eventi. Crea il primo evento con il pulsante “Nuovo evento”.</p>
+            </section>
+        }
+        @if (years.Count > 1)
+        {
+            <nav class="admin-letter-tabs" role="tablist" aria-label="Filtra eventi per anno">
+                @foreach (var year in years)
+                {
+                    var current = year;
+                    <button type="button" role="tab" class="@(ActiveYear == current ? "active" : null)" aria-selected="@(ActiveYear == current)" @onclick="() => selectedYear = current">@current</button>
+                }
+            </nav>
+        }
+        @foreach (var item in events.Where(item => item.Year == ActiveYear).OrderByDescending(item => item.EventDate))
+        {
+            <article>
+                <div>
+                    <small>@item.Year · @(item.IsPublished ? "Pubblicato" : "Bozza privata")</small>
+                    <h2>@item.Name</h2>
+                    @if (item.IsCancelled)
+                    {
+                        <p class="event-cancelled-label">Evento cancellato</p>
+                    }
+                    @if (item.IsLocked)
+                    {
+                        <p class="event-cancelled-label">Modifiche utente bloccate</p>
+                    }
+                    <p>/events/@item.Year/@item.Moniker</p>
+                </div>
+                <div class="admin-actions">
+                    @if (item.IsCurrent) { <strong>Corrente</strong> }
+                    else if (item.IsPublished && !item.IsCancelled) { <button @onclick="() => RequestSetCurrent(item)">Imposta come corrente</button> }
+                    <button @onclick="() => EditAsync(item)">Modifica</button>
+                    <button @onclick="() => RequestSetPublished(item, !item.IsPublished)">
+                        @(item.IsPublished ? "Rendi bozza" : "Pubblica")
+                    </button>
+                    <button class="@(item.IsCancelled ? "admin-restore-event" : "admin-cancel-event")"
+                            @onclick="() => OnCancelButton(item)">
+                        @(item.IsCancelled ? "Ripristina evento" : "Cancella evento")
+                    </button>
+                    <button @onclick="() => OpenTemplate(item)">Template PowerPoint@(templateEventIds.Contains(item.Id) ? " ✓" : string.Empty)</button>
+                    <button @onclick="() => OnLockButton(item)">
+                        @(item.IsLocked ? "Sblocca modifiche" : "Blocca modifiche")
+                    </button>
+                    @if (item.IsPublished)
+                    {
+                        <a href="@Community.EventUrl(item.Year, item.Moniker, "#agenda")" target="_blank" rel="noopener">Apri agenda</a>
+                        <a href="@Community.EventUrl(item.Year, item.Moniker, "/totem")" target="_blank" rel="noopener">Versione totem</a>
+                    }
+                    @if (item.IsPublished && !item.IsCancelled)
+                    {
+                        <a class="admin-print-checkin-link" href="/events/@item.Id/checkin-poster" target="_blank" rel="noopener">Stampa QR check-in</a>
+                    }
+                    <button @onclick="() => RequestSync(item)">Sincronizza Sessionize</button>
+                    <button @onclick="() => ToggleSessionsAsync(item)">
+                        @(sessionEditorEventId == item.Id ? "Nascondi sessioni" : "Link sessioni")
+                    </button>
+                    <button @onclick="() => TogglePizzaAsync(item)">
+                        Calcolatore pizze
+                    </button>
+                </div>
+                @if (sessionEditorEventId == item.Id)
+                {
+                    <section class="admin-session-resources">
+                        <h3>Video, slide e GitHub per sessione</h3>
+                        @if (sessions.Count == 0)
+                        {
+                            <p>Nessuna sessione sincronizzata. Configura Sessionize e avvia la sincronizzazione dell’evento.</p>
+                        }
+                        @foreach (var room in sessions.GroupBy(session => session.Room).OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase))
+                        {
+                            <h4 class="admin-session-room">@(string.IsNullOrWhiteSpace(room.Key) ? "Senza aula" : room.Key)</h4>
+                            @foreach (var session in room.OrderBy(session => session.StartsAt).ThenBy(session => session.Title))
+                            {
+                                <article class="admin-session-resource">
+                                    <div>
+                                        <h5>@session.Title</h5>
+                                        <p>@session.StartsAt.ToItaly().ToString("g")</p>
+                                    </div>
+                                    <button type="button" @onclick="() => EditSessionResources(item, session)">Modifica link</button>
+                                </article>
+                            }
+                        }
+                    </section>
+                }
+            </article>
+        }
+    </div>
+</main>
+</div>
+
+@if (templateEvent is not null)
+{
+    <EventTemplateDialog EventId="templateEvent.Id" EventName="@templateEvent.Name" OnClosed="CloseTemplate" OnChanged="ReloadTemplatesAsync" />
+}
+
+@if (isEventDialogOpen)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CloseEventDialog">
+        <section class="admin-event-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-event-dialog-title" @onclick:stopPropagation>
+            <button class="admin-event-dialog-close" type="button" aria-label="Chiudi" @onclick="CloseEventDialog" disabled="@savingEvent">×</button>
+            <h2 id="admin-event-dialog-title">@(draft.Id == 0 ? "Nuovo evento" : "Modifica evento")</h2>
+            <label>Anno <input type="number" @bind="draft.Year" /></label>
+            <label>Moniker <input @bind="draft.Moniker" /></label>
+            <label>Nome <input @bind="draft.Name" /></label>
+            <label>Data evento <input type="date" @bind="draftDate" /></label>
+            <label>Moniker Sessionize (CFP) <input @bind="draft.SessionizeUrl" /></label>
+            <label class="admin-wide">URL JSON Sessionize <input type="url" @bind="draft.SessionizeJsonUri" placeholder="https://sessionize.com/api/v2/.../view/All" /></label>
+            <p class="admin-help">Dopo aver salvato l’evento, usa “Sincronizza Sessionize” per importare agenda, aule e relatori dall’URL JSON.</p>
+            <div class="admin-wide">
+                <span class="admin-field-label">Descrizione</span>
+                <div id="event-description-editor" class="rich-editor"></div>
+            </div>
+            <label class="admin-publish-option">
+                <input type="checkbox" @bind="draft.IsPublished" />
+                Pubblica sul sito (disattivato: salva come bozza privata)
+            </label>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CloseEventDialog" disabled="@savingEvent">Annulla</button>
+                <button type="button" @onclick="SaveAsync" disabled="@savingEvent">
+                    @(savingEvent ? "Salvataggio…" : draft.Id == 0 ? "Crea evento" : "Salva modifiche")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pendingPublishEvent is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CancelSetPublished">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-publish-dialog-title" @onclick:stopPropagation>
+            <h2 id="admin-publish-dialog-title">@(pendingPublishState ? "Pubblicare l’evento?" : "Rendere l’evento una bozza?")</h2>
+            <p>
+                @if (pendingPublishState)
+                {
+                    <span>“@pendingPublishEvent.Name” diventerà visibile sul sito pubblico.</span>
+                }
+                else
+                {
+                    <span>“@pendingPublishEvent.Name” non sarà più visibile sul sito pubblico.</span>
+                }
+            </p>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CancelSetPublished">Annulla</button>
+                <button type="button" @onclick="ConfirmSetPublishedAsync" disabled="@savingPublish">
+                    @(savingPublish ? "Aggiornamento…" : pendingPublishState ? "Pubblica evento" : "Rendi bozza")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pendingCurrentEvent is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CancelSetCurrent">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-current-dialog-title" @onclick:stopPropagation>
+            <h2 id="admin-current-dialog-title">Impostare l’evento corrente?</h2>
+            <p>“@pendingCurrentEvent.Name” diventerà l’evento corrente al posto di quello selezionato ora.</p>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CancelSetCurrent">Annulla</button>
+                <button type="button" @onclick="ConfirmSetCurrentAsync" disabled="@savingCurrent">
+                    @(savingCurrent ? "Aggiornamento…" : "Imposta come corrente")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pizzaEvent is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="ClosePizza">
+        <section class="admin-event-confirm-dialog admin-pizza-dialog pizza-calculator" role="dialog" aria-modal="true" aria-labelledby="admin-pizza-dialog-title" @onclick:stopPropagation>
+            <button class="admin-event-dialog-close" type="button" aria-label="Chiudi" @onclick="ClosePizza">×</button>
+            <h2 id="admin-pizza-dialog-title">Calcolatore pizze · @pizzaEvent.Name</h2>
+            <p class="admin-help">Valori iniziali: partecipanti con check-in effettuato, speaker sincronizzati e 5 aggiuntivi.</p>
+            <div class="pizza-calculator-fields">
+                <label>
+                    Partecipanti (check-in)
+                    <input type="number" min="0" step="1" @bind="pizzaParticipantCount" />
+                </label>
+                <label>
+                    Speaker
+                    <input type="number" min="0" step="1" @bind="pizzaSpeakerCount" />
+                </label>
+                <label>
+                    Aggiuntivi
+                    <input type="number" min="0" step="1" @bind="pizzaExtraCount" />
+                </label>
+                <label>
+                    Fette a testa
+                    <input type="number" min="0" step="0.1" @bind="pizzaSlicesPerPerson" />
+                </label>
+            </div>
+            <div class="pizza-calculator-result" role="status">
+                <span>@PizzaTotalSlices.ToString("0.#") fette stimate</span>
+                <strong>@PizzaCount pizze</strong>
+                <small>Calcolo: (@Math.Max(0, pizzaParticipantCount) + @Math.Max(0, pizzaSpeakerCount) + @Math.Max(0, pizzaExtraCount)) × @Math.Max(0m, pizzaSlicesPerPerson).ToString("0.0") ÷ 8 fette per pizza, arrotondato per eccesso.</small>
+            </div>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="ResetPizzaDefaultsAsync">Ripristina conteggi attuali</button>
+                <button type="button" @onclick="ClosePizza">Chiudi</button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pendingLockEvent is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="DismissLock">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-lock-dialog-title" @onclick:stopPropagation>
+            <h2 id="admin-lock-dialog-title">Bloccare le modifiche?</h2>
+            <p>Per “@pendingLockEvent.Name” gli utenti non potranno più iscriversi, annullare l’iscrizione né cambiare le preferenze. Lo staff può ancora aggiungere partecipanti e fare il check-in. Potrai sbloccare l’evento in qualsiasi momento.</p>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="DismissLock" disabled="@locking">Annulla</button>
+                <button type="button" @onclick="ConfirmLockAsync" disabled="@locking">@(locking ? "Blocco…" : "Blocca modifiche")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pendingCancelEvent is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="DismissCancel">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-cancel-dialog-title" @onclick:stopPropagation>
+            <h2 id="admin-cancel-dialog-title">Cancellare l’evento?</h2>
+            <p>“@pendingCancelEvent.Name” verrà segnato come cancellato: la pagina pubblica resta visibile, ma iscrizioni e check-in vengono chiusi. Potrai ripristinarlo in seguito.</p>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="DismissCancel" disabled="@cancelling">Annulla</button>
+                <button type="button" @onclick="ConfirmCancelAsync" disabled="@cancelling">
+                    @(cancelling ? "Cancellazione…" : "Cancella evento")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pendingSyncEvent is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CancelSync">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-sync-dialog-title" @onclick:stopPropagation>
+            <h2 id="admin-sync-dialog-title">Sincronizzare con Sessionize?</h2>
+            <p>L’agenda, le aule e i relatori di “@pendingSyncEvent.Name” verranno reimportati da Sessionize e potrebbero sovrascrivere i dati attuali.</p>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CancelSync" disabled="@syncing">Annulla</button>
+                <button type="button" @onclick="ConfirmSyncAsync" disabled="@syncing">
+                    @(syncing ? "Sincronizzazione…" : "Sincronizza")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (editingEvent is not null && editingSession is not null)
+{
+    <div class="admin-session-edit-dialog" @onclick="CloseSessionEditor">
+        <section role="dialog" aria-modal="true" aria-labelledby="admin-session-dialog-title" @onclick:stopPropagation>
+            <button class="admin-session-edit-dialog-close" type="button" aria-label="Chiudi" @onclick="CloseSessionEditor">×</button>
+            <p>@editingEvent.Name · @editingSession.StartsAt.ToItaly().ToString("g") · @editingSession.Room</p>
+            <h3 id="admin-session-dialog-title">@editingSession.Title</h3>
+            <label>Video URL <input type="url" @bind="editingSession.VideoUrl" maxlength="512" placeholder="https://…" /></label>
+            <label>Slide URL <input type="url" @bind="editingSession.PresentationUrl" maxlength="512" placeholder="https://…" /></label>
+            <label>GitHub URL <input type="url" @bind="editingSession.RepositoryUrl" maxlength="512" placeholder="https://github.com/…" /></label>
+            <div class="admin-session-edit-dialog-actions">
+                <button type="button" @onclick="CloseSessionEditor" disabled="@savingSession">Annulla</button>
+                <button type="button" @onclick="() => SaveSessionResourcesAsync(editingEvent, editingSession)" disabled="@savingSession">
+                    @(savingSession ? "Salvataggio…" : "Salva link")
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<EventDefinition> events = [];
+    private IReadOnlyList<Session> sessions = [];
+    private int? sessionEditorEventId;
+    private EventDefinition? editingEvent;
+    private Session? editingSession;
+    private bool isEventDialogOpen;
+    private EventDefinition? pendingPublishEvent;
+    private bool pendingPublishState;
+    private bool savingPublish;
+    private EventDefinition? pendingCurrentEvent;
+    private bool savingCurrent;
+    private EventDefinition? pendingSyncEvent;
+    private bool syncing;
+    private int? selectedYear;
+    private IReadOnlyList<int> years => events.Select(item => item.Year).Distinct().OrderDescending().ToArray();
+    private int ActiveYear => selectedYear is { } year && years.Contains(year) ? year : years.FirstOrDefault();
+    private int? pizzaEventId;
+    private EventDefinition? pizzaEvent => events.FirstOrDefault(item => item.Id == pizzaEventId);
+    private int pizzaParticipantCount;
+    private int pizzaSpeakerCount;
+    private int pizzaExtraCount = 5;
+    private decimal pizzaSlicesPerPerson = 3.0m;
+
+    private decimal PizzaTotalSlices =>
+        (Math.Max(0, pizzaParticipantCount) + Math.Max(0, pizzaSpeakerCount) + Math.Max(0, pizzaExtraCount)) *
+        Math.Max(0m, pizzaSlicesPerPerson);
+    private int PizzaCount => (int)Math.Ceiling(PizzaTotalSlices / 8m);
+
+    private async Task TogglePizzaAsync(EventDefinition item)
+    {
+        pizzaEventId = item.Id;
+        await ResetPizzaDefaultsAsync();
+    }
+
+    private void ClosePizza() => pizzaEventId = null;
+
+    private async Task ResetPizzaDefaultsAsync()
+    {
+        if (pizzaEventId is not { } eventId)
+        {
+            return;
+        }
+
+        try
+        {
+            pizzaParticipantCount = await EventCheckIn.GetCheckedInCountAsync(eventId);
+            pizzaSpeakerCount = await EventCatalog.GetEventSpeakerCountAsync(eventId);
+            pizzaExtraCount = 5;
+            pizzaSlicesPerPerson = 3.0m;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load pizza calculator counts for event {EventId}.", eventId);
+            message = "Non è stato possibile caricare i conteggi per il calcolatore pizze.";
+        }
+    }
+    private EventDefinition? pendingCancelEvent;
+    private bool cancelling;
+
+    private EventDefinition? pendingLockEvent;
+    private bool locking;
+
+    private async Task OnLockButton(EventDefinition item)
+    {
+        if (item.IsLocked)
+        {
+            await SetLockedAsync(item, false);
+        }
+        else
+        {
+            pendingLockEvent = item;
+        }
+    }
+
+    private void DismissLock()
+    {
+        if (!locking)
+        {
+            pendingLockEvent = null;
+        }
+    }
+
+    private async Task ConfirmLockAsync()
+    {
+        if (pendingLockEvent is not { } item || locking)
+        {
+            return;
+        }
+
+        locking = true;
+        try
+        {
+            await SetLockedAsync(item, true);
+        }
+        finally
+        {
+            locking = false;
+            pendingLockEvent = null;
+        }
+    }
+
+    private async Task SetLockedAsync(EventDefinition item, bool isLocked)
+    {
+        try
+        {
+            if (await EventCatalog.SetLockedAsync(item.Id, isLocked))
+            {
+                events = await EventCatalog.GetAllAsync();
+                message = isLocked
+                    ? $"Modifiche utente bloccate per {item.Name}."
+                    : $"Modifiche utente sbloccate per {item.Name}.";
+            }
+            else
+            {
+                message = "L’evento non è stato trovato.";
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not change the lock status for event {EventId}.", item.Id);
+            message = "Non è stato possibile aggiornare il blocco delle modifiche.";
+        }
+    }
+
+    private async Task OnCancelButton(EventDefinition item)
+    {
+        if (item.IsCancelled)
+        {
+            await SetCancelledAsync(item, false);
+        }
+        else
+        {
+            pendingCancelEvent = item;
+        }
+    }
+
+    private void DismissCancel()
+    {
+        if (!cancelling)
+        {
+            pendingCancelEvent = null;
+        }
+    }
+
+    private async Task ConfirmCancelAsync()
+    {
+        if (pendingCancelEvent is not { } item || cancelling)
+        {
+            return;
+        }
+
+        cancelling = true;
+        try
+        {
+            await SetCancelledAsync(item, true);
+        }
+        finally
+        {
+            cancelling = false;
+            pendingCancelEvent = null;
+        }
+    }
+    private EventDefinition draft = new() { Year = ItalyTime.Today.Year, EventDate = ItalyTime.Today.ToString("yyyy-MM-dd") };
+    private DateTime draftDate = ItalyTime.Today;
+    private string description = string.Empty;
+    private string message = string.Empty;
+    private bool savingSession;
+    private bool savingEvent;
+
+    protected override async Task OnInitializedAsync()
+    {
+        events = await EventCatalog.GetAllAsync();
+        await ReloadTemplatesAsync();
+    }
+
+    private async Task ToggleSessionsAsync(EventDefinition item)
+    {
+        if (sessionEditorEventId == item.Id)
+        {
+            sessionEditorEventId = null;
+            sessions = [];
+            return;
+        }
+
+        sessionEditorEventId = item.Id;
+        sessions = await EventCatalog.GetSessionsAsync(item.Id);
+    }
+
+    private async Task SaveSessionResourcesAsync(EventDefinition item, Session session)
+    {
+        var sessionId = Convert.ToString(session.Id, System.Globalization.CultureInfo.InvariantCulture);
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            message = "La sessione non contiene un ID Sessionize valido.";
+            return;
+        }
+
+        savingSession = true;
+        try
+        {
+            var updated = await EventCatalog.UpdateSessionResourcesAsync(
+                item.Id,
+                sessionId,
+                session.VideoUrl,
+                session.PresentationUrl,
+                session.RepositoryUrl);
+            message = updated
+                ? $"Link aggiornati per “{session.Title}”."
+                : "La sessione non è più attiva. Sincronizza di nuovo l’evento.";
+            if (updated)
+            {
+                CloseSessionEditor();
+            }
+        }
+        catch (ArgumentException exception)
+        {
+            message = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not update resource links for session {SessionId}.", sessionId);
+            message = "Non è stato possibile salvare i link della sessione.";
+        }
+        finally
+        {
+            savingSession = false;
+        }
+    }
+
+    private async Task SetCancelledAsync(EventDefinition item, bool isCancelled)
+    {
+        try
+        {
+            if (await EventCatalog.SetCancelledAsync(item.Id, isCancelled))
+            {
+                events = await EventCatalog.GetAllAsync();
+                message = isCancelled
+                    ? $"{item.Name} è stato cancellato. La pagina pubblica resta visibile, ma iscrizioni e check-in sono chiusi."
+                    : $"{item.Name} è stato ripristinato.";
+            }
+            else
+            {
+                message = "L’evento non è stato trovato.";
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not change cancellation status for event {EventId}.", item.Id);
+            message = "Non è stato possibile aggiornare lo stato di cancellazione dell’evento.";
+        }
+    }
+
+    private void EditSessionResources(EventDefinition item, Session session)
+    {
+        editingEvent = item;
+        editingSession = session;
+    }
+
+    private void CloseSessionEditor()
+    {
+        if (!savingSession)
+        {
+            editingEvent = null;
+            editingSession = null;
+        }
+    }
+
+    private void RequestSetCurrent(EventDefinition item) => pendingCurrentEvent = item;
+
+    private void CancelSetCurrent()
+    {
+        if (!savingCurrent)
+        {
+            pendingCurrentEvent = null;
+        }
+    }
+
+    private async Task ConfirmSetCurrentAsync()
+    {
+        if (pendingCurrentEvent is not { } item || savingCurrent)
+        {
+            return;
+        }
+
+        savingCurrent = true;
+        try
+        {
+            if (await EventCatalog.SetCurrentAsync(item.Id))
+            {
+                events = await EventCatalog.GetAllAsync();
+                message = $"{item.Name} è selezionato come evento corrente.";
+                pendingCurrentEvent = null;
+            }
+            else
+            {
+                message = "L’evento non è stato trovato.";
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not change current event to {EventId}.", item.Id);
+            message = "Non è stato possibile impostare l’evento corrente.";
+        }
+        finally
+        {
+            savingCurrent = false;
+        }
+    }
+
+    private void RequestSetPublished(EventDefinition item, bool isPublished)
+    {
+        pendingPublishEvent = item;
+        pendingPublishState = isPublished;
+    }
+
+    private void CancelSetPublished()
+    {
+        if (!savingPublish)
+        {
+            pendingPublishEvent = null;
+        }
+    }
+
+    private async Task ConfirmSetPublishedAsync()
+    {
+        if (pendingPublishEvent is not { } item || savingPublish)
+        {
+            return;
+        }
+
+        savingPublish = true;
+        try
+        {
+            if (await EventCatalog.SetPublishedAsync(item.Id, pendingPublishState))
+            {
+                events = await EventCatalog.GetAllAsync();
+                message = pendingPublishState
+                    ? $"{item.Name} è pubblicato e visibile sul sito."
+                    : $"{item.Name} è ora una bozza privata.";
+                pendingPublishEvent = null;
+            }
+            else
+            {
+                message = "L’evento non è stato trovato.";
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not change published status for event {EventId}.", item.Id);
+            message = "Non è stato possibile aggiornare la visibilità dell’evento.";
+        }
+        finally
+        {
+            savingPublish = false;
+        }
+    }
+
+    private void EditAsync(EventDefinition item)
+    {
+        draft = new EventDefinition
+        {
+            Id = item.Id,
+            Year = item.Year,
+            Moniker = item.Moniker,
+            IsCurrent = item.IsCurrent,
+            IsPublished = item.IsPublished,
+            IsCancelled = item.IsCancelled,
+            Name = item.Name,
+            EventDate = item.EventDate,
+            CallForPapersOpenAt = item.CallForPapersOpenAt,
+            CallForPapersCloseAt = item.CallForPapersCloseAt,
+            CallForPapersUrl = item.CallForPapersUrl,
+            SessionizeUrl = item.SessionizeUrl,
+            SessionizeJsonUri = item.SessionizeJsonUri,
+            Description = item.Description
+        };
+        draftDate = DateTime.Parse(item.EventDate);
+        description = RichText.ToHtml(item.Description);
+        isEventDialogOpen = true;
+        editorPending = true;
+    }
+
+    private void NewEvent()
+    {
+        ResetDraft();
+        isEventDialogOpen = true;
+        editorPending = true;
+    }
+
+    private void CloseEventDialog()
+    {
+        if (savingEvent)
+        {
+            return;
+        }
+
+        isEventDialogOpen = false;
+        ResetDraft();
+    }
+
+    private EventDefinition? templateEvent;
+    private HashSet<int> templateEventIds = [];
+
+    private void OpenTemplate(EventDefinition item) => templateEvent = item;
+
+    private void CloseTemplate() => templateEvent = null;
+
+    private async Task ReloadTemplatesAsync()
+    {
+        try
+        {
+            templateEventIds = (await Templates.GetInfosAsync()).Keys.ToHashSet();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the event templates.");
+        }
+    }
+
+    private bool editorPending;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (editorPending && isEventDialogOpen)
+        {
+            editorPending = false;
+            try
+            {
+                await JS.InvokeVoidAsync("eventsRichText.init", "event-description-editor", description);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Could not start the rich text editor.");
+            }
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (savingEvent)
+        {
+            return;
+        }
+
+        if (draft.Year < 2000 || string.IsNullOrWhiteSpace(draft.Moniker) ||
+            string.IsNullOrWhiteSpace(draft.Name))
+        {
+            message = "Anno, moniker e nome sono obbligatori.";
+            return;
+        }
+
+        draft.Moniker = draft.Moniker.Trim();
+        draft.EventDate = draftDate.ToString("yyyy-MM-dd");
+        try
+        {
+            draft.Description = await JS.InvokeAsync<string>("eventsRichText.getHtml", "event-description-editor");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not read the rich text editor.");
+            message = "Non è stato possibile leggere la descrizione. Riprova.";
+            return;
+        }
+
+        var eventYear = draft.Year;
+        var eventMoniker = draft.Moniker;
+        savingEvent = true;
+        try
+        {
+            await EventCatalog.SaveAsync(draft);
+            events = await EventCatalog.GetAllAsync();
+            var savedEvent = events.SingleOrDefault(item =>
+                item.Year == eventYear && string.Equals(item.Moniker, eventMoniker, StringComparison.Ordinal));
+            if (savedEvent is null)
+            {
+                message = "L'evento è stato salvato, ma non è stato possibile ricaricarlo dal catalogo.";
+                return;
+            }
+
+            message = draft.IsPublished
+                ? "Evento salvato e pubblicato."
+                : "Evento salvato come bozza privata: non compare nel sito pubblico.";
+            isEventDialogOpen = false;
+            ResetDraft();
+        }
+        catch (ArgumentException exception)
+        {
+            message = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not save event {EventYear}/{EventMoniker}.", eventYear, eventMoniker);
+            message = "Non è stato possibile salvare l'evento.";
+        }
+        finally
+        {
+            savingEvent = false;
+        }
+    }
+
+    private void ResetDraft()
+    {
+        draft = new() { Year = ItalyTime.Today.Year, EventDate = ItalyTime.Today.ToString("yyyy-MM-dd") };
+        draftDate = ItalyTime.Today;
+        description = string.Empty;
+    }
+
+    private void RequestSync(EventDefinition item) => pendingSyncEvent = item;
+
+    private void CancelSync()
+    {
+        if (!syncing)
+        {
+            pendingSyncEvent = null;
+        }
+    }
+
+    private async Task ConfirmSyncAsync()
+    {
+        if (pendingSyncEvent is not { } item || syncing)
+        {
+            return;
+        }
+
+        syncing = true;
+        try
+        {
+            await SyncAsync(item);
+        }
+        finally
+        {
+            syncing = false;
+            pendingSyncEvent = null;
+        }
+    }
+
+    private async Task SyncAsync(EventDefinition item, bool eventWasJustCreated = false)
+    {
+        try
+        {
+            var result = await JS.InvokeAsync<SyncResponse>("eventsAdmin.sync", item.Id);
+            message = result.Ok
+                ? eventWasJustCreated
+                    ? $"Evento creato e agenda Sessionize sincronizzata per {item.Name}."
+                    : $"Agenda sincronizzata per {item.Name}."
+                : eventWasJustCreated
+                    ? $"{item.Name} è stato creato, ma l'importazione dell'agenda non è riuscita: {result.Message}"
+                    : $"Sincronizzazione non riuscita per {item.Name}: {result.Message}";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not synchronize Sessionize for event {EventId}.", item.Id);
+            message = eventWasJustCreated
+                ? $"{item.Name} è stato creato, ma non è stato possibile importare l'agenda Sessionize."
+                : $"Sincronizzazione non riuscita per {item.Name}.";
+        }
+    }
+
+    private sealed record SyncResponse(bool Ok, string Message);
+}

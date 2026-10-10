@@ -1,0 +1,451 @@
+@page "/users"
+@attribute [Authorize(Policy = "SuperUser")]
+@using Microsoft.AspNetCore.Authorization
+@inject UserManagementService UserManagement
+@inject ILogger<UserAdmin> Logger
+
+<PageTitle>Utenti · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell">
+    <div class="admin-events-heading">
+        <h2>Utenti (@total)</h2>
+        <button type="button" class="admin-event-create-button" @onclick="NewUser">Nuovo utente</button>
+    </div>
+    <input type="search" class="admin-user-search" placeholder="Cerca per nome, cognome o email"
+           @bind="search" @bind:event="oninput" @bind:after="SearchChangedAsync" autocomplete="off" />
+    @if (letters.Count > 0)
+    {
+        <nav class="admin-letter-tabs" role="tablist" aria-label="Filtra utenti per iniziale">
+            <button type="button" role="tab" class="@(selectedLetter is null ? "active" : null)" aria-selected="@(selectedLetter is null)" @onclick="() => SelectLetterAsync(null)">Tutti</button>
+            @foreach (var letter in letters)
+            {
+                var current = letter;
+                <button type="button" role="tab" class="@(selectedLetter == current ? "active" : null)" aria-selected="@(selectedLetter == current)" @onclick="() => SelectLetterAsync(current)">@current</button>
+            }
+        </nav>
+    }
+    @if (!string.IsNullOrWhiteSpace(message)) { <p role="status">@message</p> }
+    <section class="admin-create">
+        @if (items.Count == 0)
+        {
+            <p>Nessun utente trovato.</p>
+        }
+        else
+        {
+            <div class="admin-speaker-list">
+                @foreach (var user in items)
+                {
+                    <article class="admin-speaker-row">
+                        <div>
+                            <strong>@(string.IsNullOrWhiteSpace($"{user.LastName} {user.FirstName}") ? "(senza nome)" : $"{user.LastName} {user.FirstName}".Trim())</strong>
+                            <p>@user.Email · @(user.Registrations) iscrizioni@(user.CheckIns > 0 ? $" · {user.CheckIns} presenze" : string.Empty)@(user.AllowEventNotifications ? string.Empty : " · senza comunicazioni")@(user.ToBeConfirmed ? " · email da confermare" : string.Empty)</p>
+                            @if (user.Events is { Count: > 0 })
+                            {
+                                <p class="admin-user-events">
+                                    @foreach (var ev in user.Events)
+                                    {
+                                        <span class="admin-event-badge @(ev.Attended ? "attended" : null)" title="@(ev.Attended ? "Ha partecipato" : "Iscritto, presenza non registrata")">@(ev.Attended ? "✓" : "○") @ev.EventName</span>
+                                    }
+                                </p>
+                            }
+                        </div>
+                        <div class="admin-actions">
+                            <button type="button" @onclick="() => EditUser(user)">Modifica</button>
+                            <button type="button" @onclick="() => SendLoginEmailAsync(user)" disabled="@sending" title="Invia un’email con le istruzioni per accedere">Invia email di login</button>
+                        </div>
+                    </article>
+                }
+            </div>
+            @if (pageCount > 1)
+            {
+                <p class="admin-pager">
+                    <button type="button" @onclick="() => GoToPageAsync(page - 1)" disabled="@(page == 0)">← Precedente</button>
+                    <span>Pagina @(page + 1) di @pageCount</span>
+                    <button type="button" @onclick="() => GoToPageAsync(page + 1)" disabled="@(page + 1 >= pageCount)">Successiva →</button>
+                </p>
+            }
+        }
+    </section>
+</main>
+</div>
+
+@if (draft is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CloseDialog">
+        <section class="admin-event-dialog admin-user-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-user-dialog-title" @onclick:stopPropagation>
+            <button class="admin-event-dialog-close" type="button" aria-label="Chiudi" @onclick="CloseDialog" disabled="@saving">×</button>
+            <h2 id="admin-user-dialog-title">@(editingId is null ? "Nuovo utente" : "Modifica utente")</h2>
+            <label>Nome <input @bind="draft.FirstName" maxlength="64" /></label>
+            <label>Cognome <input @bind="draft.LastName" maxlength="64" /></label>
+            <label class="admin-wide">Email <input type="email" @bind="draft.Email" maxlength="64" /></label>
+            <label class="admin-publish-option">
+                <input type="checkbox" @bind="draft.AllowEventNotifications" />
+                Riceve le comunicazioni sugli eventi
+            </label>
+            @if (editingId is null)
+            {
+                <label class="admin-publish-option">
+                    <input type="checkbox" @bind="draft.SendLoginEmail" />
+                    Invia subito un’email con le istruzioni per accedere
+                </label>
+            }
+            <p class="admin-help">Attiva l’opzione sulle comunicazioni solo se la persona ha dato il consenso: la modifica viene registrata nello storico dei consensi.</p>
+            @if (editingId is not null)
+            {
+                <div class="admin-wide admin-registrations">
+                    <h3>Eventi</h3>
+                    @if (registrations.Count == 0)
+                    {
+                        <p class="admin-help">Nessuna iscrizione a eventi.</p>
+                    }
+                    @foreach (var reg in registrations)
+                    {
+                        <div class="admin-reg-row">
+                            <div class="admin-reg-title"><strong>@reg.EventName</strong> <small>@reg.EventDate.ToString("yyyy-MM-dd")</small></div>
+                            <label>Stato
+                                <select @bind="reg.Status">
+                                    @foreach (var status in UserManagementService.Statuses)
+                                    {
+                                        <option value="@status">@StatusLabel(status)</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="admin-reg-check"><input type="checkbox" @bind="reg.Attended" /> Ha partecipato@(reg.CheckedInAt is { } at ? $" ({at.ToItaly():dd/MM/yyyy HH:mm})" : string.Empty)</label>
+                            <label class="admin-reg-check"><input type="checkbox" @bind="reg.IsEatingPizza" /> Pizza</label>
+                            <label class="admin-reg-check"><input type="checkbox" @bind="reg.LactoseIntolerant" disabled="@(!reg.IsEatingPizza)" /> Lattosio</label>
+                            <div class="admin-actions">
+                                <button type="button" @onclick="() => SaveRegistrationAsync(reg)" disabled="@saving">Salva</button>
+                                @if (removingId == reg.Id)
+                                {
+                                    <button type="button" class="admin-cancel-event" @onclick="() => RemoveRegistrationAsync(reg)" disabled="@saving">Conferma rimozione</button>
+                                    <button type="button" @onclick="() => removingId = null">Annulla</button>
+                                }
+                                else
+                                {
+                                    <button type="button" @onclick="() => removingId = reg.Id" disabled="@saving">Rimuovi</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(registrationMessage))
+                    {
+                        <p class="admin-help" role="status">@registrationMessage</p>
+                    }
+                    @if (AvailableEvents.Any())
+                    {
+                        <div class="admin-reg-add">
+                            <select @bind="newEventId">
+                                <option value="">Aggiungi a un evento…</option>
+                                @foreach (var option in AvailableEvents)
+                                {
+                                    <option value="@option.Id">@option.Date.ToString("yyyy-MM-dd") · @option.Name</option>
+                                }
+                            </select>
+                            <button type="button" @onclick="AddRegistrationAsync" disabled="@(saving || newEventId is null)">Aggiungi</button>
+                        </div>
+                    }
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <p class="admin-help" role="alert">@error</p>
+            }
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CloseDialog" disabled="@saving">Annulla</button>
+                <button type="button" @onclick="SaveAsync" disabled="@saving">@(saving ? "Salvataggio…" : editingId is null ? "Aggiungi utente" : "Salva utente")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<UserListItem> items = [];
+    private IReadOnlyList<string> letters = [];
+    private int total;
+    private int page;
+    private string search = string.Empty;
+    private string? selectedLetter;
+    private string message = string.Empty;
+
+    private UserDraft? draft;
+    private int? editingId;
+    private string error = string.Empty;
+    private bool saving;
+    private bool sending;
+
+    private async Task SendLoginEmailAsync(UserListItem user)
+    {
+        if (sending)
+        {
+            return;
+        }
+
+        sending = true;
+        try
+        {
+            message = await UserManagement.SendLoginEmailAsync(user.Id)
+                ? $"Email di login inviata a {user.Email}."
+                : "L'utente non esiste più.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not send the login email to user {UserId}.", user.Id);
+            message = "Non è stato possibile inviare l’email: il servizio email non è disponibile.";
+        }
+        finally
+        {
+            sending = false;
+        }
+    }
+
+    private int pageCount => Math.Max(1, (int)Math.Ceiling(total / (double)UserManagementService.PageSize));
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var result = await UserManagement.SearchAsync(search, selectedLetter, page);
+            items = result.Items;
+            total = result.Total;
+            letters = result.Letters;
+            if (page >= pageCount)
+            {
+                page = pageCount - 1;
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the users.");
+            message = "Non è stato possibile caricare gli utenti.";
+        }
+    }
+
+    private Task SearchChangedAsync()
+    {
+        page = 0;
+        return LoadAsync();
+    }
+
+    private Task SelectLetterAsync(string? letter)
+    {
+        selectedLetter = letter;
+        page = 0;
+        return LoadAsync();
+    }
+
+    private Task GoToPageAsync(int target)
+    {
+        page = Math.Max(0, target);
+        return LoadAsync();
+    }
+
+    private void NewUser()
+    {
+        editingId = null;
+        registrations = [];
+        error = string.Empty;
+        draft = new UserDraft();
+    }
+
+    private async Task EditUser(UserListItem user)
+    {
+        editingId = user.Id;
+        error = string.Empty;
+        registrationMessage = string.Empty;
+        removingId = null;
+        newEventId = null;
+        draft = new UserDraft
+        {
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            Email = user.Email,
+            AllowEventNotifications = user.AllowEventNotifications
+        };
+        registrations = [];
+        await LoadRegistrationsAsync(user.Id);
+    }
+
+    private sealed class RegistrationRow
+    {
+        public int Id { get; init; }
+        public int EventId { get; init; }
+        public string EventName { get; init; } = string.Empty;
+        public DateTime EventDate { get; init; }
+        public string Status { get; set; } = "Registered";
+        public bool Attended { get; set; }
+        public DateTimeOffset? CheckedInAt { get; init; }
+        public bool IsEatingPizza { get; set; }
+        public bool LactoseIntolerant { get; set; }
+    }
+
+    private List<RegistrationRow> registrations = [];
+    private IReadOnlyList<EventOption> allEvents = [];
+    private int? newEventId;
+    private int? removingId;
+    private string registrationMessage = string.Empty;
+
+    private IEnumerable<EventOption> AvailableEvents =>
+        allEvents.Where(option => registrations.All(reg => reg.EventId != option.Id));
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "Registered" => "Iscritto",
+        "AwaitingConfirmation" => "In attesa di conferma",
+        "Pending" => "In sospeso",
+        "Cancelled" => "Annullata",
+        _ => status
+    };
+
+    private async Task LoadRegistrationsAsync(int userId)
+    {
+        try
+        {
+            allEvents = await UserManagement.GetEventsAsync();
+            registrations = (await UserManagement.GetRegistrationsAsync(userId))
+                .Select(item => new RegistrationRow
+                {
+                    Id = item.Id,
+                    EventId = item.EventId,
+                    EventName = item.EventName,
+                    EventDate = item.EventDate,
+                    Status = item.Status,
+                    Attended = item.CheckedInAt is not null,
+                    CheckedInAt = item.CheckedInAt,
+                    IsEatingPizza = item.IsEatingPizza,
+                    LactoseIntolerant = item.LactoseIntolerant
+                }).ToList();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the registrations of user {UserId}.", userId);
+            registrationMessage = "Non è stato possibile caricare le iscrizioni.";
+        }
+    }
+
+    private async Task RunRegistrationActionAsync(Func<Task<string>> action)
+    {
+        if (saving || editingId is not int userId)
+        {
+            return;
+        }
+
+        saving = true;
+        registrationMessage = string.Empty;
+        try
+        {
+            registrationMessage = await action();
+            removingId = null;
+            await LoadRegistrationsAsync(userId);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            registrationMessage = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Registration change failed for user {UserId}.", userId);
+            registrationMessage = "Non è stato possibile salvare la modifica.";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private Task SaveRegistrationAsync(RegistrationRow reg) => RunRegistrationActionAsync(async () =>
+    {
+        var saved = await UserManagement.SaveRegistrationAsync(editingId!.Value, new UserRegistrationEdit
+        {
+            Id = reg.Id,
+            Status = reg.Status,
+            Attended = reg.Attended,
+            IsEatingPizza = reg.IsEatingPizza,
+            LactoseIntolerant = reg.LactoseIntolerant
+        });
+        return saved ? $"Iscrizione a {reg.EventName} aggiornata." : "L'iscrizione non esiste più.";
+    });
+
+    private Task RemoveRegistrationAsync(RegistrationRow reg) => RunRegistrationActionAsync(async () =>
+        await UserManagement.DeleteRegistrationAsync(editingId!.Value, reg.Id)
+            ? $"Iscrizione a {reg.EventName} rimossa."
+            : "L'iscrizione non esiste più.");
+
+    private Task AddRegistrationAsync() => RunRegistrationActionAsync(async () =>
+    {
+        var eventId = newEventId!.Value;
+        await UserManagement.AddRegistrationAsync(editingId!.Value, eventId);
+        newEventId = null;
+        return "Iscrizione aggiunta: ora puoi segnare presenza e pizza.";
+    });
+
+    private void CloseDialog()
+    {
+        if (!saving)
+        {
+            draft = null;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (draft is null || saving)
+        {
+            return;
+        }
+
+        saving = true;
+        error = string.Empty;
+        try
+        {
+            if (editingId is int id)
+            {
+                if (!await UserManagement.UpdateAsync(id, draft))
+                {
+                    error = "L'utente non esiste più.";
+                    return;
+                }
+
+                message = $"Utente {draft.LastName} {draft.FirstName} aggiornato.".Replace("  ", " ");
+            }
+            else
+            {
+                var newId = await UserManagement.CreateAsync(draft);
+                message = $"Utente {draft.LastName} {draft.FirstName} aggiunto.".Replace("  ", " ");
+                if (draft.SendLoginEmail)
+                {
+                    try
+                    {
+                        await UserManagement.SendLoginEmailAsync(newId);
+                        message += " Email di login inviata.";
+                    }
+                    catch (Exception exception)
+                    {
+                        Logger.LogError(exception, "Could not send the login email to the new user.");
+                        message += " L’email di login non è stata inviata (servizio email non disponibile).";
+                    }
+                }
+            }
+
+            draft = null;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not save the user.");
+            error = "Non è stato possibile salvare l'utente.";
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

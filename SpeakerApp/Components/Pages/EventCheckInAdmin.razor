@@ -1,0 +1,435 @@
+@page "/checkin"
+@attribute [Authorize(Policy = "CanCheckIn")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject IJSRuntime JS
+@inject ILogger<EventCheckInAdmin> Logger
+
+<PageTitle>Check-in evento · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell checkin-admin">
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+    }
+    @if (upcomingEvents.Count == 0)
+    {
+        <section class="account-card"><p>Non c’è un evento corrente aperto: imposta l’evento corrente in Gestione eventi.</p></section>
+    }
+    else
+    {
+        <label class="checkin-event-select" for="staff-event">Evento</label>
+        <select id="staff-event" @bind="selectedEventId" @bind:after="OnSelectedEventChangedAsync">
+            @foreach (var item in upcomingEvents)
+            {
+                <option value="@item.Id">@item.EventDate · @item.Name</option>
+            }
+        </select>
+        @if (selectedEvent is not null)
+        {
+            <section class="checkin-event-summary" aria-label="Riepilogo evento">
+                <article><strong>@checkedInCount</strong><span>check-in effettuati</span></article>
+                <article><strong>@attendees.Count</strong><span>registrazioni</span></article>
+            </section>
+            @if (!selectedEvent.IsCurrent)
+            {
+                <p class="account-help">Il check-in è disponibile solo per l’evento corrente: questo evento non è quello corrente.</p>
+            }
+            else if (!selectedDateIsToday)
+            {
+                <p class="account-help">Il check-in manuale sarà disponibile il giorno dell’evento.</p>
+            }
+            <nav class="admin-letter-tabs" role="tablist" aria-label="Check-in">
+                <button type="button" role="tab" class="@(activeSection == "list" ? "active" : null)" aria-selected="@(activeSection == "list")" @onclick="@(() => activeSection = "list")">Elenco partecipanti (@attendees.Count)</button>
+                <button type="button" role="tab" class="@(activeSection == "search" ? "active" : null)" aria-selected="@(activeSection == "search")" @onclick="@(() => activeSection = "search")">Cerca in anagrafica</button>
+                <button type="button" role="tab" class="@(activeSection == "add" ? "active" : null)" aria-selected="@(activeSection == "add")" @onclick="@(() => activeSection = "add")">Aggiungi partecipante</button>
+            </nav>
+            @if (activeSection == "list")
+            {
+                <section class="account-card checkin-attendees">
+                    <div class="checkin-attendees-heading">
+                        <span class="account-help">@attendees.Count @(attendees.Count == 1 ? "partecipante" : "partecipanti")</span>
+                        <button type="button" @onclick="LoadAttendeesAsync" disabled="@busy">Aggiorna elenco</button>
+                    </div>
+                    @if (attendees.Count == 0)
+                    {
+                        <p>Nessun partecipante registrato per questo evento.</p>
+                    }
+                    else
+                    {
+                        <div class="checkin-attendee-list">
+                            @foreach (var attendee in attendees)
+                            {
+                                <article class="checkin-attendee">
+                                    <div>
+                                        <strong>
+                                            @if (!string.IsNullOrWhiteSpace(attendee.FirstName) ||
+                                                 !string.IsNullOrWhiteSpace(attendee.LastName))
+                                            {
+                                                @($"{attendee.FirstName} {attendee.LastName}".Trim())
+                                                <span> · </span>
+                                            }
+                                            @attendee.Email
+                                        </strong>
+                                        <p>
+                                            @(attendee.Status == "AwaitingConfirmation" ? "In attesa di conferma" :
+                                                attendee.CheckedInAt is null ? "Iscritto" : $"Check-in: {attendee.CheckedInAt.Value.ToItaly():HH:mm}")
+                                            @if (attendee.IsEatingPizza)
+                                            {
+                                                <span> · Pizza@(attendee.LactoseIntolerant ? " · intolleranza al lattosio" : string.Empty)</span>
+                                            }
+                                        </p>
+                                    </div>
+                                    <div class="checkin-attendee-actions">
+                                        @if (attendee.CheckedInAt is null)
+                                        {
+                                            <button type="button" @onclick="() => SendConfirmationAsync(attendee)" disabled="@busy">Invia email di conferma</button>
+                                        }
+                                        @if (selectedDateIsToday && attendee.Status == "Registered" && attendee.CheckedInAt is null)
+                                        {
+                                            <button type="button" @onclick="() => ManualCheckInAsync(attendee)" disabled="@busy">Check-in manuale</button>
+                                        }
+                                    </div>
+                                </article>
+                            }
+                        </div>
+                    }
+                </section>
+            }
+            @if (activeSection == "search")
+            {
+                <section class="account-card checkin-search">
+                    <p class="account-help">Iscrivi all’evento una persona già presente in anagrafica: registra solo la partecipazione, senza creare nuovi account.</p>
+                    <form class="checkin-search-form" @onsubmit="SearchPeopleAsync" @onsubmit:preventDefault>
+                        <label for="people-query">Nome, cognome o email</label>
+                        <div class="checkin-search-row">
+                            <input id="people-query" type="search" @bind="searchQuery" maxlength="128" autocomplete="off" />
+                            <button class="event-button" type="submit" disabled="@busy">Cerca</button>
+                        </div>
+                    </form>
+                    <label class="account-consent">
+                        <input type="checkbox" @bind="registerIsEatingPizza" @bind:after="UpdateRegisterDietaryPreference" />
+                        Si ferma a mangiare la pizza.
+                    </label>
+                    @if (registerIsEatingPizza)
+                    {
+                        <label class="account-consent">
+                            <input type="checkbox" @bind="registerLactoseIntolerant" />
+                            Intolleranza al lattosio.
+                        </label>
+                    }
+                    @if (searched)
+                    {
+                        @if (people.Count == 0)
+                        {
+                            <p>Nessuna persona trovata. Se non è in anagrafica, usa “Aggiungi partecipante”.</p>
+                        }
+                        else
+                        {
+                            <div class="checkin-attendee-list">
+                                @foreach (var person in people)
+                                {
+                                    <article class="checkin-attendee">
+                                        <div>
+                                            <strong>@($"{person.FirstName} {person.LastName}".Trim())@(string.IsNullOrWhiteSpace($"{person.FirstName}{person.LastName}") ? string.Empty : " · ")@person.Email</strong>
+                                            @if (person.IsRegistered)
+                                            {
+                                                <p>Già iscritto a questo evento</p>
+                                            }
+                                            else if (!person.IsConfirmed)
+                                            {
+                                                <p>Email non confermata: usa “Aggiungi partecipante”</p>
+                                            }
+                                        </div>
+                                        @if (!person.IsRegistered)
+                                        {
+                                            <button type="button" @onclick="() => RegisterExistingAsync(person)" disabled="@(busy || !person.IsConfirmed)">Iscrivi</button>
+                                        }
+                                    </article>
+                                }
+                            </div>
+                        }
+                    }
+                </section>
+            }
+            @if (activeSection == "add")
+            {
+                <section class="account-card checkin-add">
+                    <form @onsubmit="AddParticipantAsync" @onsubmit:preventDefault>
+                        <label for="participant-first-name">Nome</label>
+                        <input id="participant-first-name" type="text" @bind="newFirstName" required maxlength="64" autocomplete="given-name" />
+                        <label for="participant-last-name">Cognome</label>
+                        <input id="participant-last-name" type="text" @bind="newLastName" required maxlength="64" autocomplete="family-name" />
+                        <label for="participant-email">Email</label>
+                        <input id="participant-email" type="email" @bind="newEmail" required maxlength="128" />
+                        <label class="account-consent">
+                            <input type="checkbox" @bind="newIsEatingPizza" @bind:after="UpdateNewDietaryPreference" />
+                            Si ferma a mangiare la pizza.
+                        </label>
+                        @if (newIsEatingPizza)
+                        {
+                            <label class="account-consent">
+                                <input type="checkbox" @bind="newLactoseIntolerant" />
+                                Intolleranza al lattosio.
+                            </label>
+                        }
+                        <button class="event-button" type="submit" disabled="@busy">@(busy ? "Salvataggio…" : "Aggiungi partecipante")</button>
+                    </form>
+                    <p>L’iscrizione è confermata subito e non viene inviata nessuna email. Puoi inviare l’email di conferma dalla riga del partecipante.</p>
+                </section>
+            }
+        }
+    }
+</main>
+</div>
+
+@code {
+    private IReadOnlyList<EventDefinition> upcomingEvents = [];
+    private IReadOnlyList<EventAttendeeResponse> attendees = [];
+    private int? selectedEventId;
+    private string newFirstName = string.Empty;
+    private string newLastName = string.Empty;
+    private string newEmail = string.Empty;
+    private string message = string.Empty;
+    private bool newIsEatingPizza;
+    private bool newLactoseIntolerant;
+    private bool busy;
+    private bool isError;
+    private string activeSection = "list";
+    private string searchQuery = string.Empty;
+    private bool searched;
+    private IReadOnlyList<PersonSearchResponse> people = [];
+    private bool registerIsEatingPizza;
+    private bool registerLactoseIntolerant;
+
+    [SupplyParameterFromQuery(Name = "eventId")]
+    public int? RequestedEventId { get; set; }
+
+    private EventDefinition? selectedEvent =>
+        upcomingEvents.FirstOrDefault(item => item.Id == selectedEventId);
+    private int checkedInCount =>
+        attendees.Count(attendee => attendee.Status == "Registered" && attendee.CheckedInAt is not null);
+    private bool selectedDateIsToday =>
+        selectedEvent is not null &&
+        DateOnly.TryParse(selectedEvent.EventDate, out var date) &&
+        selectedEvent.IsCurrent &&
+        date == DateOnly.FromDateTime(ItalyTime.Today);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Il check-in riguarda solo l'evento corrente.
+        upcomingEvents = (await EventCatalog.GetUpcomingAsync(ItalyTime.Today))
+            .Where(item => item.IsCurrent)
+            .ToArray();
+        selectedEventId = upcomingEvents.FirstOrDefault()?.Id;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && selectedEventId is not null)
+        {
+            await LoadAttendeesAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAttendeesAsync()
+    {
+        var item = selectedEvent;
+        if (item is null)
+        {
+            attendees = [];
+            return;
+        }
+
+        try
+        {
+            attendees = await JS.InvokeAsync<List<EventAttendeeResponse>>(
+                "eventsCheckIn.attendees",
+                item.Id);
+            message = string.Empty;
+            isError = false;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load attendees for event {EventId}.", item.Id);
+            attendees = [];
+            message = "Non è stato possibile caricare l’elenco partecipanti.";
+            isError = true;
+        }
+    }
+
+    private async Task OnSelectedEventChangedAsync()
+    {
+        people = [];
+        searched = false;
+        await LoadAttendeesAsync();
+    }
+
+    private async Task SearchPeopleAsync()
+    {
+        var item = selectedEvent;
+        if (item is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            people = await JS.InvokeAsync<List<PersonSearchResponse>>("eventsCheckIn.searchPeople", item.Id, searchQuery);
+            searched = true;
+        });
+    }
+
+    private async Task RegisterExistingAsync(PersonSearchResponse person)
+    {
+        var item = selectedEvent;
+        if (item is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsCheckIn.registerExisting",
+                item.Id,
+                new { userId = person.UserId, isEatingPizza = registerIsEatingPizza, lactoseIntolerant = registerLactoseIntolerant });
+            SetResponse(result);
+            if (result.Ok)
+            {
+                await LoadAttendeesAsync();
+                people = await JS.InvokeAsync<List<PersonSearchResponse>>("eventsCheckIn.searchPeople", item.Id, searchQuery);
+            }
+        });
+    }
+
+    private void UpdateRegisterDietaryPreference()
+    {
+        if (!registerIsEatingPizza)
+        {
+            registerLactoseIntolerant = false;
+        }
+    }
+
+    private async Task AddParticipantAsync()
+    {
+        var item = selectedEvent;
+        if (item is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsCheckIn.addParticipant",
+                item.Id,
+                new
+                {
+                    firstName = newFirstName,
+                    lastName = newLastName,
+                    email = newEmail,
+                    isEatingPizza = newIsEatingPizza,
+                    lactoseIntolerant = newLactoseIntolerant
+                });
+            SetResponse(result);
+            if (result.Ok)
+            {
+                newFirstName = string.Empty;
+                newLastName = string.Empty;
+                newEmail = string.Empty;
+                newIsEatingPizza = false;
+                newLactoseIntolerant = false;
+                await LoadAttendeesAsync();
+            }
+        });
+    }
+
+    private async Task SendConfirmationAsync(EventAttendeeResponse attendee)
+    {
+        var item = selectedEvent;
+        if (item is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsCheckIn.sendConfirmation",
+                item.Id,
+                attendee.RegistrationId);
+            SetResponse(result);
+            if (result.Ok)
+            {
+                await LoadAttendeesAsync();
+            }
+        });
+    }
+
+    private async Task ManualCheckInAsync(EventAttendeeResponse attendee)
+    {
+        var item = selectedEvent;
+        if (item is null)
+        {
+            return;
+        }
+
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsCheckIn.manualCheckIn",
+                item.Id,
+                attendee.RegistrationId);
+            SetResponse(result);
+            if (result.Ok)
+            {
+                await LoadAttendeesAsync();
+            }
+        });
+    }
+
+    private void UpdateNewDietaryPreference()
+    {
+        if (!newIsEatingPizza)
+        {
+            newLactoseIntolerant = false;
+        }
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        busy = true;
+        isError = false;
+        message = string.Empty;
+        try
+        {
+            await action();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "An event check-in administration action failed.");
+            message = "Operazione non riuscita. Riprova.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void SetResponse(ClientResponse result)
+    {
+        message = result.Message;
+        isError = !result.Ok || result.Warning;
+    }
+
+    private sealed record ClientResponse(bool Ok, string Message, bool Warning = false);
+}

@@ -1,0 +1,94 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject SpeakerImportService SpeakerImport
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ILogger<SpeakerImportPanel> Logger
+
+<p class="import-help">
+    Export Sessionize “flattened accepted sessions” (colonne Speaker Id, FirstName, LastName, Email). Si importano email e Speaker Id degli account speaker già presenti;
+    se l’email nel file è diversa, viene cambiata e la modifica è registrata. Gli speaker non presenti non vengono creati: sincronizza prima l’evento con Sessionize.
+</p>
+<ImportInput OnData="OnDataAsync" Disabled="@busy" Columns="SessionizeColumns" Placeholder="Speaker Id;FirstName;LastName;Email" />
+@if (!string.IsNullOrEmpty(result)) { <p role="status">@result</p> }
+@if (!string.IsNullOrEmpty(error)) { <p class="admin-help" role="alert">@error</p> }
+@if (items is not null)
+{
+    <p><strong>@items.Count(i => i.HasChanges)</strong> da aggiornare · @items.Count(i => i.Status == "Invariato") invariati · @items.Count(i => i.Status is "Non trovato" or "Ambiguo" or "Non valido" or "Duplicato" or "Email già usata") da controllare</p>
+    <div class="admin-import-list">
+        @foreach (var item in items.OrderBy(i => i.HasChanges ? 0 : i.Status == "Invariato" ? 2 : 1).ThenBy(i => i.Name))
+        {
+            <article class="admin-speaker-row">
+                <div>
+                    <strong>@item.Name</strong> · @item.Status
+                    <p>@(item.ChangeEmail ? $"{(string.IsNullOrEmpty(item.CurrentEmail) ? "—" : item.CurrentEmail)} → {item.FileEmail}" : item.FileEmail)@(string.IsNullOrEmpty(item.Note) ? string.Empty : $" · {item.Note}")</p>
+                </div>
+            </article>
+        }
+    </div>
+    <p><button type="button" class="event-button" @onclick="ConfirmAsync" disabled="@(busy || !items.Any(i => i.HasChanges))">@(busy ? "Attendere…" : "Importa")</button></p>
+}
+
+@code {
+    private static readonly string[] SessionizeColumns = ["Speaker Id", "FirstName", "LastName", "Email"];
+
+    private IReadOnlyList<SpeakerImportRow>? rows;
+    private IReadOnlyList<SpeakerImportItem>? items;
+    private string error = string.Empty;
+    private string result = string.Empty;
+    private bool busy;
+
+    private async Task OnDataAsync((byte[] Data, string Name) input)
+    {
+        error = string.Empty;
+        result = string.Empty;
+        rows = null;
+        items = null;
+        busy = true;
+        try
+        {
+            using var stream = new MemoryStream(input.Data);
+            rows = SpeakerImportService.Parse(stream, input.Name);
+            items = await SpeakerImport.AnalyzeAsync(rows);
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not read the Sessionize speaker data.");
+            error = "Non è stato possibile leggere i dati. Controlla il formato (.xlsx, .csv o testo CSV, massimo 5 MB).";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (rows is null || busy)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var changedBy = state.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "superuser";
+            var outcome = await SpeakerImport.ImportAsync(rows, changedBy);
+            result = $"Importazione completata: {outcome.Updated} speaker aggiornati ({outcome.EmailsChanged} email cambiate, {outcome.IdsSet} Speaker Id impostati).";
+            rows = null;
+            items = null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Sessionize speaker import failed.");
+            error = "L’importazione non è riuscita: nessuna modifica è stata salvata.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

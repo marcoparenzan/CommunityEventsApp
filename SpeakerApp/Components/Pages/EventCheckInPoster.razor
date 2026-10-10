@@ -1,0 +1,115 @@
+@page "/events/{EventId:int}/checkin-poster"
+@attribute [Authorize(Policy = "SuperUser")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using QRCoder
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject CommunityLinks Community
+@inject IJSRuntime JS
+@inject ILogger<EventCheckInPoster> Logger
+
+<PageTitle>QR check-in · @(eventInfo?.Name ?? "Evento")</PageTitle>
+
+<AccountTopbar />
+<main class="checkin-poster-page">
+    @if (eventInfo is null)
+    {
+        <p class="account-message" role="alert">Evento non trovato, non pubblicato o cancellato.</p>
+        <a class="speaker-return-link" href="/events">Torna alla gestione eventi</a>
+    }
+    else
+    {
+        <nav class="checkin-poster-actions">
+            <a class="speaker-return-link" href="/events">← Torna agli eventi</a>
+            @if (qrImage.Length > 0)
+            {
+                <button type="button" @onclick="PrintAsync">Stampa pagina</button>
+            }
+        </nav>
+        @if (qrImage.Length == 0)
+        {
+            <section class="account-card checkin-poster-generate">
+                <h1>@eventInfo.Name</h1>
+                <p>Il QR code contiene una <strong>firma segreta</strong> dell’evento: senza quel codice nessun partecipante può fare il check-in.</p>
+                <p><strong>Ogni volta che generi il QR la firma cambia</strong>: i QR stampati prima smettono di funzionare e solo l’ultimo è valido. Il codice non viene mai mostrato ai partecipanti e non si può rivedere: se ricarichi la pagina devi generarne uno nuovo.</p>
+                <button type="button" class="event-button" @onclick="GenerateAsync" disabled="@busy">@(busy ? "Generazione…" : "Genera QR code")</button>
+                @if (!string.IsNullOrEmpty(error)) { <p role="alert">@error</p> }
+            </section>
+        }
+        else
+        {
+            <article class="checkin-poster">
+                <img class="checkin-poster-logo" src="/img/1nn0va.png" alt="1nn0va" />
+                <p class="event-eyebrow">@eventInfo.EventDate</p>
+                <h1>@eventInfo.Name</h1>
+                <h2>Check-in partecipanti</h2>
+                <img class="checkin-poster-qr" src="@qrImage" alt="QR code check-in evento @eventInfo.Name" />
+                <p class="checkin-poster-instructions">Apri l’app 1nn0va, accedi alla tua area personale e scansiona questo codice.</p>
+                <p class="checkin-poster-code">Codice n. @fingerprint · generato il @generatedAt.ToString("dd/MM/yyyy HH:mm")</p>
+            </article>
+            <p class="checkin-poster-actions admin-help">Stampa questa pagina: il QR è valido solo finché non ne generi un altro.
+                <button type="button" @onclick="GenerateAsync" disabled="@busy">Genera un nuovo QR</button></p>
+        }
+    }
+</main>
+
+@code {
+    [Parameter] public int EventId { get; set; }
+
+    private EventDefinition? eventInfo;
+    private string qrImage = string.Empty;
+    private string fingerprint = string.Empty;
+    private DateTime generatedAt;
+    private string error = string.Empty;
+    private bool busy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Qui si legge soltanto l'evento: il QR (e il cambio di firma) nasce solo dal pulsante.
+        eventInfo = (await EventCatalog.GetAllAsync())
+            .SingleOrDefault(item => item.Id == EventId && item.IsPublished && !item.IsCancelled);
+        qrImage = string.Empty;
+    }
+
+    private async Task GenerateAsync()
+    {
+        if (eventInfo is null || busy)
+        {
+            return;
+        }
+
+        busy = true;
+        error = string.Empty;
+        try
+        {
+            var signature = await EventCatalog.RotateCheckInTokenAsync(eventInfo.Id);
+            if (signature is not Guid token)
+            {
+                error = "Evento non trovato, non pubblicato o cancellato.";
+                return;
+            }
+
+            // La firma sta nel QR come parametro dell'indirizzo; sul foglio si stampa solo un codice breve di riconoscimento.
+            var checkInUrl = Community.Url($"checkin/event/{eventInfo.Id}?s={token:D}");
+            using var generator = new QRCodeGenerator();
+            using var data = generator.CreateQrCode(checkInUrl, QRCodeGenerator.ECCLevel.Q);
+            var png = new PngByteQRCode(data).GetGraphic(12);
+            qrImage = $"data:image/png;base64,{Convert.ToBase64String(png)}";
+            fingerprint = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(token.ToByteArray()))[..6];
+            generatedAt = ItalyTime.Now;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not generate the check-in QR code of event {EventId}.", eventInfo.Id);
+            error = "Non è stato possibile generare il QR code.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task PrintAsync() => await JS.InvokeVoidAsync("print");
+}

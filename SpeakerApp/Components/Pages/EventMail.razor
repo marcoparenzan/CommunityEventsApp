@@ -1,0 +1,214 @@
+@page "/mail"
+@attribute [Authorize(Policy = "SuperUser")]
+@using Microsoft.AspNetCore.Authorization
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject EventMailService Mail
+@inject ILogger<EventMail> Logger
+
+<PageTitle>Mail · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell">
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+    }
+    @if (events.Count == 0)
+    {
+        <section class="account-card"><p>Non ci sono eventi configurati.</p></section>
+    }
+    else
+    {
+        <section class="account-card admin-mail">
+            <label for="mail-event">Evento</label>
+            <select id="mail-event" @bind="selectedEventId" @bind:after="LoadRecipientsAsync">
+                @foreach (var item in events)
+                {
+                    <option value="@item.Id">@item.EventDate · @item.Name@(item.IsCurrent ? " (corrente)" : string.Empty)</option>
+                }
+            </select>
+
+            <label for="mail-audience">Destinatari</label>
+            <select id="mail-audience" @bind="audience" @bind:after="LoadRecipientsAsync">
+                @foreach (var (key, label) in EventMailService.Audiences)
+                {
+                    <option value="@key">@label</option>
+                }
+            </select>
+            <p class="account-help">@(recipients.Count) destinatari@(recipients.Count > EventMailService.MaxRecipients ? $" (massimo {EventMailService.MaxRecipients} per invio)" : string.Empty)</p>
+            @if (recipients.Count > 0)
+            {
+                <details class="admin-mail-recipients">
+                    <summary>Mostra destinatari</summary>
+                    <ul>
+                        @foreach (var recipient in recipients.Take(200))
+                        {
+                            <li>@(string.IsNullOrWhiteSpace(recipient.Name) ? recipient.Email : $"{recipient.Name} <{recipient.Email}>")</li>
+                        }
+                    </ul>
+                </details>
+            }
+
+            <label for="mail-subject">Oggetto</label>
+            <input id="mail-subject" type="text" @bind="subject" maxlength="200" />
+
+            <label for="mail-body">Messaggio</label>
+            <textarea id="mail-body" @bind="body" rows="10" maxlength="10000"></textarea>
+            <p class="account-help">Non ricevono il messaggio le persone che hanno disattivato le comunicazioni sugli eventi o cancellato l’account. Ogni email include in fondo l’indicazione su come disattivarle o cancellarsi.</p>
+            <p class="account-help">Testo semplice. Puoi usare {nome} (nome del destinatario) e {evento} (nome dell’evento).</p>
+
+            <div class="admin-mail-actions">
+                <button class="event-button" type="button" @onclick="RequestSend" disabled="@(busy || recipients.Count == 0)">Invia</button>
+            </div>
+        </section>
+    }
+</main>
+</div>
+
+@if (confirming)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CancelSend">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-mail-dialog-title" @onclick:stopPropagation>
+            <h2 id="admin-mail-dialog-title">Inviare il messaggio?</h2>
+            <p>“@subject” verrà inviato a @recipients.Count destinatari (@AudienceLabel) di @SelectedEvent?.Name. L’operazione non si può annullare.</p>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CancelSend" disabled="@busy">Annulla</button>
+                <button type="button" @onclick="ConfirmSendAsync" disabled="@busy">@(busy ? "Invio…" : "Invia")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<EventDefinition> events = [];
+    private IReadOnlyList<MailRecipient> recipients = [];
+    private int selectedEventId;
+    private string audience = "all";
+
+    [SupplyParameterFromQuery(Name = "eventId")]
+    public int? RequestedEventId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "audience")]
+    public string? RequestedAudience { get; set; }
+    private string subject = string.Empty;
+    private string body = string.Empty;
+    private string message = string.Empty;
+    private bool isError;
+    private bool busy;
+    private bool confirming;
+
+    private EventDefinition? SelectedEvent => events.FirstOrDefault(item => item.Id == selectedEventId);
+    private string AudienceLabel => EventMailService.Audiences.FirstOrDefault(item => item.Key == audience).Label ?? audience;
+
+    protected override async Task OnInitializedAsync()
+    {
+        events = (await EventCatalog.GetAllAsync()).OrderByDescending(item => item.EventDate).ToArray();
+        selectedEventId = (events.FirstOrDefault(item => item.Id == RequestedEventId)
+            ?? events.FirstOrDefault(item => item.IsCurrent)
+            ?? events.FirstOrDefault())?.Id ?? 0;
+        if (EventMailService.Audiences.Any(item => item.Key == RequestedAudience))
+        {
+            audience = RequestedAudience!;
+        }
+
+        await LoadRecipientsAsync();
+    }
+
+    private async Task LoadRecipientsAsync()
+    {
+        if (selectedEventId == 0)
+        {
+            recipients = [];
+            return;
+        }
+
+        try
+        {
+            recipients = await Mail.GetRecipientsAsync(selectedEventId, audience);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load mail recipients for event {EventId}.", selectedEventId);
+            recipients = [];
+            message = "Non è stato possibile caricare i destinatari.";
+            isError = true;
+        }
+    }
+
+    private void RequestSend()
+    {
+        message = string.Empty;
+        isError = false;
+        if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(body))
+        {
+            message = "Oggetto e messaggio sono obbligatori.";
+            isError = true;
+            return;
+        }
+
+        if (recipients.Count > EventMailService.MaxRecipients)
+        {
+            message = $"Troppi destinatari: il massimo per invio è {EventMailService.MaxRecipients}.";
+            isError = true;
+            return;
+        }
+
+        confirming = true;
+    }
+
+    private void CancelSend()
+    {
+        if (!busy)
+        {
+            confirming = false;
+        }
+    }
+
+    private async Task ConfirmSendAsync()
+    {
+        if (SelectedEvent is not { } eventInfo || busy)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            var result = await Mail.SendAsync(eventInfo, audience, subject, body);
+            message = result.Failed == 0
+                ? $"Messaggio inviato a {result.Sent} destinatari."
+                : $"Messaggio inviato a {result.Sent} destinatari; {result.Failed} invii non riusciti.";
+            isError = result.Failed > 0;
+            if (result.Sent > 0)
+            {
+                subject = string.Empty;
+                body = string.Empty;
+            }
+        }
+        catch (ArgumentException exception)
+        {
+            message = exception.Message;
+            isError = true;
+        }
+        catch (EmailDeliveryException exception)
+        {
+            Logger.LogError(exception, "Could not send bulk mail for event {EventId}.", eventInfo.Id);
+            message = $"Invio non riuscito: {exception.Message}";
+            isError = true;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Unexpected bulk mail failure for event {EventId}.", eventInfo.Id);
+            message = "Invio non riuscito. Riprova tra poco.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+            confirming = false;
+        }
+    }
+}

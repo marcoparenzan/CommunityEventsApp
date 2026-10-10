@@ -1,0 +1,231 @@
+@page "/reports"
+@attribute [Authorize(Policy = "SuperUser")]
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject EventCheckInService CheckIn
+@inject EventReportService Reports
+@inject IJSRuntime JS
+@inject ILogger<EventReports> Logger
+
+<PageTitle>Reports · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell">
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <p class="account-message" role="alert">@message</p>
+    }
+    @if (events.Count == 0)
+    {
+        <section class="account-card"><p>Non ci sono eventi configurati.</p></section>
+    }
+    else
+    {
+        <label class="checkin-event-select" for="report-event">Evento</label>
+        <select id="report-event" class="admin-report-select" @bind="selectedEventId" @bind:after="LoadAsync">
+            @foreach (var item in events)
+            {
+                <option value="@item.Id">@item.EventDate · @item.Name@(item.IsCurrent ? " (corrente)" : string.Empty)</option>
+            }
+        </select>
+
+        <nav class="admin-letter-tabs" role="tablist" aria-label="Report">
+            @foreach (var report in AllReports)
+            {
+                var current = report.Key;
+                <button type="button" role="tab" class="@(activeTab == current ? "active" : null)" aria-selected="@(activeTab == current)" @onclick="() => activeTab = current">@report.Label</button>
+            }
+        </nav>
+
+        @if (summary is null)
+        {
+            <p role="status">Caricamento…</p>
+        }
+        else if (activeTab == "summary")
+        {
+            <section class="admin-report-tiles" aria-label="Riepilogo">
+                <article><strong>@summary.Registered</strong><span>utenti confermati</span></article>
+                <article><strong>@summary.AwaitingConfirmation</strong><span>utenti non confermati</span></article>
+                <article><strong>@summary.CheckedIn</strong><span>check-in effettuati</span></article>
+                <article><strong>@summary.Cancelled</strong><span>iscrizioni annullate</span></article>
+                <article><strong>@summary.EatingPizza</strong><span>si fermano a mangiare</span></article>
+                <article><strong>@summary.LactoseIntolerant</strong><span>utenti intolleranti al lattosio</span></article>
+                <article><strong>@summary.Speakers</strong><span>speaker (@summary.SpeakersLinked collegati a un account)</span></article>
+                <article><strong>@summary.Sessions</strong><span>sessioni (video @summary.SessionsWithVideo · slide @summary.SessionsWithSlides · GitHub @summary.SessionsWithRepository)</span></article>
+            </section>
+        }
+        else
+        {
+            var table = CurrentTable;
+            <div class="admin-report-heading">
+                <h2>@CurrentLabel</h2>
+                <div class="admin-report-actions">
+                    <button type="button" @onclick="ExportAsync" disabled="@(table.Rows.Count == 0)">Scarica XLSX</button>
+                    @if (CurrentAudience is { } audience)
+                    {
+                        <a href="/mail?eventId=@selectedEventId&audience=@audience" target="_blank" rel="noopener">Invia email</a>
+                    }
+                </div>
+            </div>
+            <ReportGrid Headers="table.Headers" Rows="table.Rows" />
+        }
+    }
+</main>
+</div>
+
+@code {
+    private sealed record ReportTable(IReadOnlyList<string> Headers, IReadOnlyList<IReadOnlyList<string>> Rows);
+
+    private sealed record ReportDefinition(string Key, string Label, string? Audience);
+
+    private static readonly ReportDefinition[] AllReports =
+    [
+        new("summary", "Riepilogo", null),
+        new("registered", "Utenti registrati", "all"),
+        new("awaiting", "Utenti non confermati", "awaiting"),
+        new("confirmed", "Utenti confermati", "registered"),
+        new("lactose", "Utenti intolleranti", "lactose"),
+        new("sessions", "Sessioni", null),
+        new("speakers", "Speaker", null)
+    ];
+
+    private static readonly string[] UserHeaders = ["Cognome", "Nome", "Email", "Stato", "Check-in", "Pizza", "Lattosio"];
+
+    private IReadOnlyList<EventDefinition> events = [];
+    private int selectedEventId;
+    private string activeTab = "summary";
+    private string message = string.Empty;
+    private EventSummaryReport? summary;
+    private IReadOnlyList<EventAttendeeResponse> attendees = [];
+    private IReadOnlyList<ReportSessionRow> sessions = [];
+    private IReadOnlyList<ReportSpeakerRow> speakers = [];
+    private ReportTable? cachedTable;
+    private string? cachedTableKey;
+
+    private EventDefinition? SelectedEvent => events.FirstOrDefault(item => item.Id == selectedEventId);
+    private string CurrentLabel => AllReports.First(report => report.Key == activeTab).Label;
+    private string? CurrentAudience => AllReports.First(report => report.Key == activeTab).Audience;
+
+    private ReportTable CurrentTable
+    {
+        get
+        {
+            // Mantiene lo stesso riferimento tra i render, così la griglia conserva ordinamento e pagina.
+            if (cachedTable is null || cachedTableKey != $"{selectedEventId}:{activeTab}:{summary?.GetHashCode()}")
+            {
+                cachedTable = BuildTable(activeTab);
+                cachedTableKey = $"{selectedEventId}:{activeTab}:{summary?.GetHashCode()}";
+            }
+
+            return cachedTable;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        events = (await EventCatalog.GetAllAsync()).OrderByDescending(item => item.EventDate).ToArray();
+        selectedEventId = (events.FirstOrDefault(item => item.IsCurrent) ?? events.FirstOrDefault())?.Id ?? 0;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        summary = null;
+        cachedTable = null;
+        message = string.Empty;
+        if (selectedEventId == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            attendees = await CheckIn.GetAttendeesAsync(selectedEventId);
+            sessions = await Reports.GetSessionsAsync(selectedEventId);
+            speakers = await Reports.GetSpeakersAsync(selectedEventId);
+            summary = await Reports.GetSummaryAsync(selectedEventId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load reports for event {EventId}.", selectedEventId);
+            message = "Non è stato possibile caricare i report.";
+        }
+    }
+
+    private static string StatusLabel(string status) => status switch
+    {
+        "Registered" => "Confermato",
+        "AwaitingConfirmation" => "Non confermato",
+        "Cancelled" => "Annullato",
+        _ => status
+    };
+
+    private static IReadOnlyList<string> UserRow(EventAttendeeResponse item) =>
+    [
+        item.LastName ?? string.Empty,
+        item.FirstName ?? string.Empty,
+        item.Email,
+        StatusLabel(item.Status),
+        item.CheckedInAt is { } at ? at.ToItaly().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : string.Empty,
+        item.IsEatingPizza ? "Sì" : "No",
+        item.LactoseIntolerant ? "Intollerante" : string.Empty
+    ];
+
+    private ReportTable BuildTable(string key)
+    {
+        switch (key)
+        {
+            case "registered":
+                return new ReportTable(UserHeaders, attendees.Select(UserRow).ToArray());
+            case "awaiting":
+                return new ReportTable(UserHeaders, attendees.Where(item => item.Status == "AwaitingConfirmation").Select(UserRow).ToArray());
+            case "confirmed":
+                return new ReportTable(UserHeaders, attendees.Where(item => item.Status == "Registered").Select(UserRow).ToArray());
+            case "lactose":
+                return new ReportTable(UserHeaders, attendees.Where(item => item.LactoseIntolerant).Select(UserRow).ToArray());
+            case "sessions":
+                return new ReportTable(
+                    ["Aula", "Inizio", "Titolo", "Speaker", "Video", "Slide", "GitHub"],
+                    sessions.Select(item => (IReadOnlyList<string>)
+                    [
+                        item.Room,
+                        item.StartsAt.ToItaly().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                        item.Title,
+                        item.Speakers,
+                        item.HasVideo ? "Sì" : "No",
+                        item.HasSlides ? "Sì" : "No",
+                        item.HasRepository ? "Sì" : "No"
+                    ]).ToArray());
+            case "speakers":
+                return new ReportTable(
+                    ["Nome", "Account", "Sessioni"],
+                    speakers.Select(item => (IReadOnlyList<string>)
+                    [
+                        item.Name,
+                        string.IsNullOrEmpty(item.AccountEmail) ? "Non collegato" : item.AccountEmail,
+                        item.Sessions.ToString(CultureInfo.InvariantCulture)
+                    ]).ToArray());
+            default:
+                return new ReportTable([], []);
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        var table = CurrentTable;
+        var bytes = XlsxExporter.Create(CurrentLabel, table.Headers, table.Rows);
+        var fileName = $"{activeTab}-{SelectedEvent?.Moniker ?? "evento"}-{ItalyTime.Today:yyyyMMdd}.xlsx";
+        using var stream = new MemoryStream(bytes);
+        using var reference = new DotNetStreamReference(stream);
+        await JS.InvokeVoidAsync(
+            "eventsAdmin.downloadFile",
+            fileName,
+            reference,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+}

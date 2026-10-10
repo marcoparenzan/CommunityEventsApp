@@ -1,0 +1,155 @@
+@page "/account/profile"
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<Profile> Logger
+
+<PageTitle>Il mio profilo · 1nn0va</PageTitle>
+
+<main class="account-site">
+    <AccountTopbar />
+
+    <section class="account-content">
+        @if (!loaded)
+        {
+            <p role="status">Caricamento…</p>
+        }
+        else if (profile is null)
+        {
+            <h1>Il mio profilo</h1>
+            <section class="account-card">
+                <p>Per vedere il tuo profilo devi accedere.</p>
+                <p><a class="event-button" href="/account">Accedi</a></p>
+            </section>
+        }
+        else
+        {
+            <h1>Il mio profilo</h1>
+            <section class="account-card">
+                <p><strong>@($"{profile.FirstName} {profile.LastName}".Trim())</strong><br />@profile.Email</p>
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+                }
+                <label class="account-consent">
+                    <input type="checkbox" checked="@profile.AllowEventNotifications" disabled="@busy"
+                           @onchange="args => SetNotificationsAsync(Convert.ToBoolean(args.Value))" />
+                    Voglio ricevere le comunicazioni sugli eventi 1nn0va.
+                </label>
+                <p class="account-help">Se disattivi questa opzione non ti inviamo più messaggi sugli eventi.</p>
+            </section>
+
+            <section class="account-card">
+                <h2>Cancella il mio account</h2>
+                <p>Puoi chiedere la cancellazione dei tuoi dati in qualsiasi momento.</p>
+                <ul>
+                    <li>Se non hai mai partecipato a un evento, il tuo account e tutti i tuoi dati vengono cancellati.</li>
+                    <li>Se hai già partecipato a un evento, nome ed email vengono rimossi e resta solo la tua partecipazione, in forma anonima.</li>
+                </ul>
+                <button type="button" class="event-button" @onclick="() => confirmDelete = true" disabled="@busy">Cancella il mio account</button>
+            </section>
+        }
+    </section>
+</main>
+
+@if (confirmDelete)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="() => { if (!busy) confirmDelete = false; }">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-account-title" @onclick:stopPropagation>
+            <h2 id="delete-account-title">Cancellare il tuo account?</h2>
+            <p>L’operazione non si può annullare. Le iscrizioni a eventi futuri vengono annullate e verrai disconnesso.</p>
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="() => confirmDelete = false" disabled="@busy">Annulla</button>
+                <button type="button" @onclick="DeleteAsync" disabled="@busy">@(busy ? "Cancellazione…" : "Sì, cancella il mio account")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private ProfileResponse? profile;
+    private bool loaded;
+    private bool busy;
+    private bool confirmDelete;
+    private bool isError;
+    private string message = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            profile = await JS.InvokeAsync<ProfileResponse?>("eventsAccount.profile");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the profile.");
+            message = "Non è stato possibile caricare il profilo.";
+            isError = true;
+        }
+
+        loaded = true;
+        StateHasChanged();
+    }
+
+    private async Task SetNotificationsAsync(bool allow)
+    {
+        busy = true;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsAccount.setNotifications", allow);
+            message = result.Message;
+            isError = !result.Ok;
+            if (result.Ok && profile is not null)
+            {
+                profile = profile with { AllowEventNotifications = allow };
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not update the notification preference.");
+            message = "Non è stato possibile salvare la preferenza.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        busy = true;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsAccount.deleteAccount");
+            if (result.Ok)
+            {
+                Navigation.NavigateTo("/", forceLoad: true);
+                return;
+            }
+
+            message = result.Message;
+            isError = true;
+            confirmDelete = false;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not delete the account.");
+            message = "Non è stato possibile cancellare l’account.";
+            isError = true;
+            confirmDelete = false;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private sealed record ProfileResponse(string FirstName, string LastName, string Email, bool AllowEventNotifications);
+    private sealed record ClientResponse(bool Ok, string Message);
+}

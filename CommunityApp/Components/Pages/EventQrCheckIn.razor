@@ -1,0 +1,117 @@
+@page "/checkin/event/{EventId:int}"
+@using Microsoft.JSInterop
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<EventQrCheckIn> Logger
+
+<PageTitle>Check-in · @(eventInfo?.Name ?? "Evento 1nn0va")</PageTitle>
+
+<main class="account-site checkin-site">
+    <AccountTopbar />
+    <section class="account-content">
+        @if (eventInfo is null)
+        {
+            <h1>Evento non disponibile</h1>
+            <p role="alert">Il codice QR non corrisponde a un evento pubblicato aperto al check-in.</p>
+        }
+        else
+        {
+            <p class="event-eyebrow">Check-in evento</p>
+            <h1>@eventInfo.Name</h1>
+            <p>@eventInfo.EventDate</p>
+            @if (!string.IsNullOrWhiteSpace(message))
+            {
+                <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+            }
+            @if (!isEventDay)
+            {
+                <section class="account-card"><p>Il check-in sarà disponibile il giorno dell’evento.</p></section>
+            }
+            else
+            {
+                <section class="account-card">
+                    @if (Signature is null)
+                    {
+                        <p role="alert">Questo link non contiene il codice del QR. Inquadra il QR code stampato all’evento con la fotocamera o con lo scanner dell’app.</p>
+                    }
+                    else
+                    {
+                        <p>Accedi con l’account partecipante già registrato per completare il check-in.</p>
+                        <button class="event-button" type="button" @onclick="CheckInAsync" disabled="@busy">
+                            @(busy ? "Registrazione check-in…" : "Completa il check-in")
+                        </button>
+                    }
+                    <p><a href="/checkin/scan">Vuoi inquadrare il codice dall’app? Apri lo scanner.</a></p>
+                    <p><a href="/account">Accedi o torna all’area personale</a></p>
+                </section>
+            }
+        }
+    </section>
+</main>
+
+@code {
+    [Parameter] public int EventId { get; set; }
+
+    /// <summary>Signature read from the printed QR code (?s=...).</summary>
+    [SupplyParameterFromQuery(Name = "s")] public string? SignatureText { get; set; }
+
+    private Guid? Signature => Guid.TryParse(SignatureText, out var value) ? value : null;
+
+    private EventDefinition? eventInfo;
+    private string message = string.Empty;
+    private bool isError;
+    private bool busy;
+    private bool isEventDay =>
+        eventInfo is not null &&
+        DateOnly.TryParse(eventInfo.EventDate, out var eventDate) &&
+        eventDate == DateOnly.FromDateTime(ItalyTime.Today);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        eventInfo = (await EventCatalog.GetUpcomingAsync(ItalyTime.Today))
+            .FirstOrDefault(item => item.Id == EventId);
+    }
+
+    private async Task CheckInAsync()
+    {
+        if (eventInfo is null || Signature is null)
+        {
+            return;
+        }
+
+        busy = true;
+        isError = false;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>(
+                "eventsCheckIn.authenticatedSelfCheckIn",
+                eventInfo.Id,
+                Signature);
+            message = result.Message;
+            isError = !result.Ok || result.Warning;
+            if (result.Ok)
+            {
+                busy = false;
+                StateHasChanged();
+                await Task.Delay(1500);
+                Navigation.NavigateTo("/account?checkin=ok");
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Authenticated QR check-in failed for event {EventId}.", eventInfo.Id);
+            message = "Non è stato possibile completare il check-in. Accedi all’area personale e riprova.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private sealed record ClientResponse(bool Ok, string Message, bool Warning = false);
+}

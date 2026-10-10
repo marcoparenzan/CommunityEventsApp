@@ -1,0 +1,146 @@
+@inject UserImportService UserImport
+@inject ILogger<UserImportPanel> Logger
+
+<p class="import-help">
+    Colonne: <strong>Cognome, Nome, Email</strong> (con o senza intestazioni).
+    @if (EventId is null)
+    {
+        <span>Gli utenti non ancora presenti vengono aggiunti; quelli già presenti restano invariati (si completano solo i nomi mancanti).</span>
+    }
+    else
+    {
+        <span>Le persone vengono cercate tra gli utenti tramite l’email; quelle mancanti vengono aggiunte e tutte vengono iscritte all’evento (iscrizione già confermata, senza email).</span>
+    }
+</p>
+<div class="import-options">
+    <label class="account-consent">
+        <input type="checkbox" @bind="setNotifications" @bind:after="ReanalyzeAsync" disabled="@busy" />
+        Imposta “riceve le comunicazioni 1nn0va” a sì (anche per gli utenti già presenti; registrato nello storico dei consensi)
+    </label>
+    @if (EventId is not null)
+    {
+        <label class="account-consent">
+            <input type="checkbox" @bind="setPizza" @bind:after="ReanalyzeAsync" disabled="@busy" />
+            Imposta “pizza” a sì sull’iscrizione all’evento
+        </label>
+    }
+</div>
+<ImportInput OnData="OnDataAsync" Disabled="@busy" Placeholder="Rossi;Mario;mario.rossi@example.com" />
+@if (!string.IsNullOrEmpty(result)) { <p role="status">@result</p> }
+@if (!string.IsNullOrEmpty(error)) { <p class="admin-help" role="alert">@error</p> }
+@if (items is not null)
+{
+    <p>
+        <strong>@items.Count(item => item.HasChanges)</strong> da importare ·
+        @items.Count(item => item.AddUser) nuovi utenti ·
+        @items.Count(item => item.Status is "Già iscritto" or "Esistente") già presenti ·
+        @items.Count(item => item.Status == "Non valido") non validi
+    </p>
+    <div class="admin-import-list">
+        @foreach (var item in items.OrderBy(item => item.Status == "Non valido" ? 0 : item.HasChanges ? 1 : 2).ThenBy(item => item.Name).Take(300))
+        {
+            <article class="admin-speaker-row">
+                <div>
+                    <strong>@(string.IsNullOrWhiteSpace(item.Name) ? item.Email : item.Name)</strong> · @item.Status
+                    <p>@item.Email@(string.IsNullOrEmpty(item.Note) ? string.Empty : $" · {item.Note}")</p>
+                </div>
+            </article>
+        }
+        @if (items.Count > 300) { <p class="admin-help">Mostrate le prime 300 righe su @items.Count.</p> }
+    </div>
+    <p><button type="button" class="event-button" @onclick="ConfirmAsync" disabled="@(busy || !items.Any(item => item.HasChanges))">@(busy ? "Attendere…" : "Importa")</button></p>
+}
+
+@code {
+    [Parameter] public int? EventId { get; set; }
+
+    private IReadOnlyList<UserImportRow>? rows;
+    private IReadOnlyList<UserImportItem>? items;
+    private string error = string.Empty;
+    private string result = string.Empty;
+    private bool busy;
+    private bool setNotifications = true;
+    private bool setPizza = true;
+
+    private UserImportOptions Options => new(setNotifications, setPizza && EventId is not null);
+
+    // Le opzioni cambiano l'esito della verifica: si ripete sul testo già caricato.
+    private async Task ReanalyzeAsync()
+    {
+        if (rows is null)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            items = await UserImport.AnalyzeAsync(rows, EventId, Options);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not re-run the import check.");
+            error = "Non è stato possibile aggiornare la verifica.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task OnDataAsync((byte[] Data, string Name) input)
+    {
+        error = string.Empty;
+        result = string.Empty;
+        rows = null;
+        items = null;
+        busy = true;
+        try
+        {
+            using var stream = new MemoryStream(input.Data);
+            rows = UserImportService.Parse(stream, input.Name);
+            items = await UserImport.AnalyzeAsync(rows, EventId, Options);
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not read the user import data.");
+            error = "Non è stato possibile leggere i dati. Controlla il formato (.xlsx, .csv o testo CSV, massimo 5 MB).";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (rows is null || busy)
+        {
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            var outcome = await UserImport.ImportAsync(rows, EventId, Options);
+            result = EventId is null
+                ? $"Importazione utenti completata: {outcome.UsersAdded} aggiunti, {outcome.NamesFilled} nomi completati, {outcome.NotificationsSet} con comunicazioni attivate."
+                : $"Importazione partecipanti completata: {outcome.Registered} iscritti, {outcome.PizzaSet} con pizza ({outcome.UsersAdded} nuovi utenti aggiunti, {outcome.NotificationsSet} con comunicazioni attivate).";
+            rows = null;
+            items = null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "User import failed.");
+            error = "L’importazione non è riuscita: nessuna modifica è stata salvata.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

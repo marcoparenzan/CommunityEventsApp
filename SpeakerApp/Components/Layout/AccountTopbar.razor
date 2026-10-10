@@ -1,0 +1,89 @@
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<AccountTopbar> Logger
+
+<header class="account-topbar">
+    <a class="account-brand" href="/" aria-label="1nn0va eventi"><img src="/img/1nn0va.png" alt="1nn0va" /></a>
+    @if (user is not null)
+    {
+        <nav class="account-topbar-links" aria-label="Strumenti">
+            <NavLink href="/" Match="NavLinkMatch.All">Il mio profilo</NavLink>
+            <NavLink href="/my-events">I tuoi eventi</NavLink>
+            <NavLink href="/my-sessions">Le tue sessioni</NavLink>
+            <NavLink href="/tracks">Track</NavLink>
+            @if (user.HasClaim("can_check_in", "true"))
+            {
+                <NavLink href="/checkin">Check-in evento</NavLink>
+            }
+            @if (user.HasClaim("is_super_user", "true"))
+            {
+                <span class="account-topbar-sep" aria-hidden="true"></span>
+                <NavLink href="/events" Match="NavLinkMatch.All">Gestione eventi</NavLink>
+                <NavLink href="/speakers">Gestisci Speakers</NavLink>
+                <NavLink href="/users">Gestisci utenti</NavLink>
+                <NavLink href="/sponsors">Sponsor</NavLink>
+                <NavLink href="/mail">Mail</NavLink>
+                <NavLink href="/reports">Reports</NavLink>
+                <NavLink href="/import">Importa</NavLink>
+            }
+        </nav>
+        <details class="account-user-menu">
+            <summary aria-label="Apri menu utente">
+                <span class="account-user-name">@DisplayName</span>
+                <span class="account-user-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <nav class="account-user-dropdown" aria-label="Menu utente">
+                <button type="button" @onclick="SignOutAsync" disabled="@busy">
+                    @(busy ? "Uscita…" : "Esci")
+                </button>
+            </nav>
+        </details>
+    }
+</header>
+
+@code {
+    private ClaimsPrincipal? user;
+    private bool busy;
+
+    // Nome e cognome se disponibili, altrimenti l'email.
+    private string DisplayName =>
+        user?.FindFirstValue(ClaimTypes.Name) is { Length: > 0 } name && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : user?.FindFirstValue(ClaimTypes.Email) ?? "Account";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            user = state.User;
+        }
+    }
+
+    private async Task SignOutAsync()
+    {
+        busy = true;
+        try
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsAccount.signOut");
+            if (result.Ok)
+            {
+                Navigation.NavigateTo("/", forceLoad: true);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not sign out from the user menu.");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private sealed record ClientResponse(bool Ok, string Message);
+}

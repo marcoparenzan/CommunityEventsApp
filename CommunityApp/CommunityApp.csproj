@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CommunityApp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="EventsCommon.Models" />
+    <Using Include="EventsCommon.Services" />
+    <Using Include="CommunityApp.Services" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EventsCommon\EventsCommon.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings.template.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,334 @@
+@page "/legacy2026"
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+
+@* <nav class="side-menu">
+    <ul>
+        <li class="hidden active">
+            <a class="page-scroll" href="#page-top"></a>
+        </li>
+        <li>
+            <a href="#home" class="page-scroll">
+                <span class="menu-title">Home</span>
+                <span class="dot"></span>
+            </a>
+        </li>
+        <li>
+            <a href="#tickets" class="page-scroll">
+                <span class="menu-title">Registrati</span>
+                <span class="dot"></span>
+            </a>
+        </li>
+        <li>
+            <a href="#schedule" class="page-scroll">
+                <span class="menu-title">Agenda</span>
+                <span class="dot"></span>
+            </a>
+        </li>
+        <li>
+            <a href="#speakers" class="page-scroll">
+                <span class="menu-title">Speakers</span>
+                <span class="dot"></span>
+            </a>
+        </li>
+
+    </ul>
+</nav>
+ *@<div class="container-fluid">
+    <!-- Start: Header -->
+    <div class="row hero-header" id="home">
+        <div class="col-md-12">
+            <img src="img/1nn0va.png" class="logo">
+            <h1>1nn0vAI 2026, l'Intelligenza Artificiale nell'ecosistema Microsoft a Pordenone</h1>
+            <h3>Consorzio Universitario di Pordenone, via Prasecco 3/A, ore 9.00</h3>
+            <h4>26 settembre 2026</h4>
+            <a href="#tickets" class="btn btn-lg btn-red">Registrati <span class="ti-arrow-right"></span></a>
+
+        </div>
+    </div>
+    <!-- End: Header -->
+</div>
+
+<section class="descripton">
+
+    <div class="container">
+        <!-- Start: Desc -->
+        <div class="row me-row content">
+            <div class="content-ct"><h2 class="row-title">L'evento</h2></div>
+            <div class="col-md-12">
+                <p>
+                    Torna <a href="https://www.1nn0va.it/" alt="1nn0va">1nn0va</a> al Consorzio Universitario di via Prasecco 3/A, per il 2026 con il suo evento sull'Intelligenza Artificiale dopo l'evento del <a href="https://1nn0va.it/innovai-intelligenza-artificiale-2025/" alt="1nn0vAI 2025">2025</a>
+                </p><p>
+                    L’intelligenza artificiale sta trasformando il modo in cui lavoriamo, sviluppiamo soluzioni e prendiamo decisioni. Unisciti a noi per una giornata di approfondimento, ispirazione e networking dedicata all’AI nell’ecosistema Microsoft.
+                </p><p>
+
+                    Durante l’evento esploreremo come l’AI si integra nelle tecnologie Microsoft attraverso casi d’uso concreti, dimostrazioni pratiche e scenari reali. Parleremo di:
+                    <ul>
+                        <li>Azure AI Foundry, Machine Learning e Cognitive Services</li>
+                        <li>.NET, Semantic Kernel e Extension.AI</li>
+                        <li>Copilot, Microsoft 365 e l’evoluzione dell’AI generativa</li>
+                        <li>Power Platform e AI Builder per democratizzare l’innovazione</li>
+                        <li>Automazione intelligente e ottimizzazione dei processi aziendali</li>
+                        <li>Sicurezza, etica e governance dell’AI in ambienti Microsoft</li>
+                        <li>Applicazioni dell'AI nel mondo reale (anche oltre l'ecosistema Microsoft)</li>
+                    </ul>
+                </p><p>
+                    Che tu sia un professionista IT, sviluppatore, decision maker o appassionato di nuove tecnologie, questo evento ti offrirà spunti concreti e strumenti per affrontare le sfide dell’AI oggi e domani.
+                </p><p>
+
+                    L'agenda è in fase di definizione: come sempre, sarà un evento con grandi contenuti e grandi speaker!<br />
+    Intanto per pregustarti l'agenda, puoi dare un'occhiata a quella dell'evento del 2025, che trovi <a href="https://1nn0vai2025.1nn0va.it/agenda" alt="Agenda 1nn0vAI 2025">qui</a>.'
+                    Ma intanto registrati! Cosi sappiamo come organizzarci al meglio!
+                </p>
+            </div>
+        </div>
+        <!-- End: Desc -->
+    </div>
+</section>
+<section class="sponsor">
+
+    <div class="container">
+        <!-- Start: Desc -->
+        <div class="row me-row content-ct">
+            <h2 class="row-title">Sponsors</h2>
+            <div class="col-lg-3 col-md-4 col-sm-6 col-12 feature">
+				<h3>
+					<a href="https://www.unipordenone.it/" target="_blank">
+                        <img src="img/unipordenone_logo 2025.png" width="192" alt="Università di Pordenone" />
+					</a>
+				</h3>
+            </div>
+            <div class="col-lg-3 col-md-4 col-sm-6 col-12 feature">
+                <h3>
+                    <a href="https://consortiumservice.it/" target="_blank">
+                        <img src="img/logo-consortium-1.png" width="192" alt="Consortium Service" />
+                    </a>
+                </h3>
+            </div>
+            <div class="col-lg-3 col-md-4 col-sm-6 col-12 feature">
+                <h3>
+                    <a href="https://www.ditedi.it/" target="_blank">
+                        <img src="img/ditedi.png" width="192" alt=DITEDI" />
+                    </a>
+                </h3>
+            </div>
+            <div class="col-lg-3 col-md-4 col-sm-6 col-12 feature">
+                <h3>
+                    <a href="https://www.tdsynnex.com/" target="_blank">
+                        <img src="img/tdsynnex.png" width="192" alt="TD Synnex" />
+                    </a>
+                </h3>
+            </div>        </div>
+        <!-- End: Desc -->
+    </div>
+</section>
+
+<!-- Start: Tickets -->
+<div class="container-fluid tickets" id="tickets">
+    <div class="row me-row content-ct">
+        <h2 class="row-title col-12">Registrati</h2>
+        <div class="col-lg-2 d-none d-lg-block">
+        </div>
+        <div class="col-lg-8 col-md-12">
+            <p>La registrazione è gestita direttamente da 1nn0va.</p>
+            <a class="btn btn-lg btn-red" href="/">Registrati per l'evento corrente <span class="ti-arrow-right"></span></a>
+        </div>
+    </div>
+</div>
+<!-- End: Tickets -->
+<!-- Start: Schedule -->
+<section class="schedule">
+    <div class="container">
+        <div class="row me-row" id="schedule">
+            <h2 class="row-title content-ct col-12">Agenda</h2>
+            @if (!string.IsNullOrWhiteSpace(scheduleError))
+            {
+                <p class="col-12" role="alert">@scheduleError</p>
+            }
+            <div class="col-12">
+                <div class="row room-headers">
+                    @foreach (var room in rooms)
+                    {
+                        <div class="col-lg-3 col-md-6 col-12">
+                            <div class="d-flex gap-2">
+                                <div class="media-body w-100">
+                                    <h5>@room</h5>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+                @foreach (var sessionsSlot in sessionsSlots)
+                {
+                    <div class="row">
+                        <h4 class="media-heading col-12">@sessionsSlot.Key.ToString("HH:mm")</h4>
+                        @foreach (var session in Complete(sessionsSlot))
+                        {
+                            <div class="col-lg-3 col-md-6 col-12">
+                                <div class="d-flex gap-2">
+                                    <div class="media-body w-100">
+                                        @if (!string.IsNullOrWhiteSpace(session.Title))
+                                        {
+                                            <div class="room-badge">📍 @session.Room</div>
+                                            <h5>@session.Title</h5>
+                                            <h6>
+                                                @if (session.Speakers is not null && session.Speakers.Any())
+                                                {
+                                                    var speakerCount = 0;
+                                                    foreach (var speaker in session.Speakers)
+                                                    {
+                                                        var speakerInfo = speakers.SingleOrDefault(xx => xx.Id == speaker.Id);
+                                                        if (speakerInfo is not null)
+                                                        {
+                                                            if (speakerCount > 0)
+                                                            {
+                                                                <text>, </text>
+                                                            }
+
+                                                            @if (speakerInfo.HasValidUrl())
+                                                            {
+                                                                <a href="@speakerInfo.SpeakerUrl()">@speakerInfo.FirstName @speakerInfo.LastName</a>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span>@speakerInfo.FirstName @speakerInfo.LastName</span>
+                                                            }
+
+                                                            speakerCount++;
+                                                        }
+                                                    }
+                                                }
+                                            </h6>
+                                            <p>@SessionDescriptionOf(session)</p>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</section>
+<!-- End: Schedule -->
+<div class="container speaker">
+    <!-- Start: Speakers -->
+    <div class="row me-row content-ct" id="speakers">
+        <h2 class="row-title">Speakers</h2>
+        @foreach (var speaker in speakers.OrderBy(xx => Random.Shared.Next()))
+        {
+            <div class="col-md-3 col-sm-6 col-12 mb-3">
+                <div>
+                    <img src="@speaker.ProfilePicture" class="speaker-img" alt="@speaker.FirstName @speaker.LastName">
+                    <h3>
+                        @if (speaker.HasValidUrl())
+                        {
+                            <a href="@speaker.SpeakerUrl()">@speaker.FirstName @speaker.LastName</a>
+                        }
+                        else
+                        {
+                            <span>@speaker.FirstName @speaker.LastName</span>
+                        }
+                    </h3>
+                </div>
+            </div>
+        }
+    </div>
+    <!-- End: Speakers -->
+</div>
+
+<!-- Start: Footer -->
+<div class="container-fluid footer">
+    <div class="row footer-credit">
+        <div class="col-lg-6 col-md-12 col-12">
+            <p>&copy; 2007-@(DateTimeOffset.Now.Year), <a href="http://www.1nn0va.it">1nn0va.it</a> | All rights reserved.</p>
+        </div>
+    </div>
+</div>
+
+@code {
+  
+    HttpClient httpClient = new();
+
+    SpeakerInfo[] speakers = [];
+
+    IGrouping<DateTimeOffset, Session>[] sessionsSlots = [];
+
+    string[] rooms = [];
+    string scheduleError = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var eventInfo = await EventCatalog.GetAsync(2026, "1nn0vAI");
+                if (eventInfo is null || !Uri.TryCreate(eventInfo.SessionizeJsonUri, UriKind.Absolute, out var sessionizeUri) ||
+                    sessionizeUri.Scheme != Uri.UriSchemeHttps ||
+                    !string.Equals(sessionizeUri.Host, "sessionize.com", StringComparison.OrdinalIgnoreCase) ||
+                    !sessionizeUri.AbsolutePath.EndsWith("/view/All", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("L'evento 2026 non ha un URL JSON Sessionize valido.");
+                }
+
+                var apiBase = sessionizeUri.AbsoluteUri[..sessionizeUri.AbsoluteUri.LastIndexOf("/view/All", StringComparison.OrdinalIgnoreCase)] + "/view";
+                speakers = await httpClient.GetFromJsonAsync<SpeakerInfo[]>($"{apiBase}/Speakers")
+                    ?? throw new InvalidOperationException("Sessionize non ha restituito i relatori.");
+                var sessionizeData = await httpClient.GetFromJsonAsync<SessionizeAllResponse>(sessionizeUri)
+                    ?? throw new InvalidOperationException("Sessionize non ha restituito l'agenda.");
+                var roomsById = sessionizeData.Rooms.ToDictionary(room => room.Id);
+                var speakersById = sessionizeData.Speakers.ToDictionary(speaker => speaker.Id);
+
+                rooms = sessionizeData.Rooms.Select(room => room.Name).Distinct().ToArray();
+                sessionsSlots = sessionizeData.Sessions
+                    .Where(session => !session.IsServiceSession)
+                    .Select(session => new Session
+                    {
+                        Id = session.Id,
+                        Title = session.Title,
+                        Description = session.Description,
+                        StartsAt = session.StartsAt,
+                        EndsAt = session.EndsAt,
+                        IsServiceSession = session.IsServiceSession,
+                        RoomId = session.RoomId,
+                        Room = roomsById.TryGetValue(session.RoomId, out var room) ? room.Name : string.Empty,
+                        Speakers = session.Speakers
+                            .Select(value => Guid.TryParse(value, out var id) ? id : Guid.Empty)
+                            .Where(id => id != Guid.Empty)
+                            .Where(speakersById.ContainsKey)
+                            .Select(id => new Speaker { Id = id, Name = speakersById[id].FullName })
+                            .ToList()
+                    })
+                    .GroupBy(session => session.StartsAt)
+                    .ToArray();
+            }
+            catch (Exception)
+            {
+                scheduleError = "Non è stato possibile caricare l'agenda da Sessionize.";
+            }
+            StateHasChanged();
+        }
+    }
+
+    MarkupString SessionDescriptionOf(Session sessionInfo)
+    {
+        if (string.IsNullOrWhiteSpace(sessionInfo.Description)) return (MarkupString)"&nbsp;";
+        return new MarkupString(sessionInfo.Description);
+    }
+
+    Session[] Complete(IEnumerable<Session> group)
+    {
+        return rooms.Select(xx =>
+        {
+            var session = group.SingleOrDefault(yy => yy.Room == xx);
+            if (session is not null) return session;
+            return new Session
+                {
+                    Room = xx
+                };
+        }).ToArray();
+    }
+}

@@ -1,0 +1,19 @@
+@using EventsCommon.Models
+
+@if (Session is not null)
+{
+    foreach (var speaker in Session.Speakers.OrderBy(xx => xx.Name))
+    {
+        var speakerInfo = Speakers.SingleOrDefault(xx => xx.Id == speaker.Id);
+        <a href="@speakerInfo.SpeakerUrl()" target="_blank"> @speakerInfo.FirstName @speakerInfo.LastName</a><br/>
+    }
+}
+
+@code {
+
+    [Parameter]
+    public Session Session { get; set; }
+
+    [Parameter]
+    public SpeakerInfo[] Speakers { get; set; }
+}

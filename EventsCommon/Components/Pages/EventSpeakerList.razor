@@ -1,0 +1,109 @@
+@page "/events/{Year:int}/{Moniker}/speakers"
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject ISiteLinks Links
+@inject EventCatalogService EventCatalog
+
+<PageTitle>Relatori · @(eventInfo?.Name ?? "Evento 1nn0va")</PageTitle>
+
+@if (eventInfo is null)
+{
+    <main class="event-shell">
+        <h1>Evento non trovato</h1>
+        <p>Controlla l'anno e il moniker nell'indirizzo.</p>
+        <a href="@Links.Home">Torna agli eventi</a>
+    </main>
+}
+else
+{
+    <div class="event-site @(Links.TopbarComponent is null ? "" : "event-site-compact")">
+        @if (Links.TopbarComponent is { } topbar)
+        {
+            <DynamicComponent Type="topbar" />
+        }
+        <header class="speaker-list-header">
+            @if (Links.TopbarComponent is null)
+            {
+                <nav class="event-nav">
+                    <a class="event-brand" href="@Links.Home"><img src="/img/1nn0va.png" alt="1nn0va" /><span>Eventi</span></a>
+                    <a href="/events/@eventInfo.Year/@eventInfo.Moniker#agenda">Agenda</a>
+                    <a href="/events/@eventInfo.Year/@eventInfo.Moniker/speakers">Relatori</a>
+                    <a href="/events/@eventInfo.Year/@eventInfo.Moniker#sponsor">Sponsor</a>
+                    <a href="@Links.Account()">Area personale</a>
+                </nav>
+            }
+            <div class="speaker-list-heading">
+                <p class="event-eyebrow">@eventInfo.Name</p>
+                <h1>Tutti i relatori</h1>
+                <a href="/events/@eventInfo.Year/@eventInfo.Moniker">← Torna all'evento</a>
+            </div>
+        </header>
+
+        <main class="speaker-list-content">
+            @if (speakers.Count == 0)
+            {
+                <p class="catalog-empty">I relatori saranno pubblicati a breve.</p>
+            }
+            else
+            {
+                <div class="speaker-card-grid">
+                    @foreach (var speaker in speakers)
+                    {
+                        <article class="speaker-card">
+                            @if (!string.IsNullOrWhiteSpace(speaker.ProfilePictureUrl))
+                            {
+                                <img src="@speaker.ProfilePictureUrl" alt="" loading="lazy" />
+                            }
+                            <div>
+                                <h2><a href="@Links.SpeakerProfile(speaker.PublicProfileKey)" target="_blank" rel="noopener">@speaker.FullName</a></h2>
+                                @if (!string.IsNullOrWhiteSpace(speaker.TagLine))
+                                {
+                                    <p class="speaker-tagline">@speaker.TagLine</p>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(speaker.Bio))
+                                {
+                                    <p class="speaker-bio">@speaker.Bio</p>
+                                }
+                                @if (speaker.Sessions.Count > 0)
+                                {
+                                    <h3>Sessioni</h3>
+                                    <ul>
+                                        @foreach (var session in speaker.Sessions)
+                                        {
+                                            <li>@session</li>
+                                        }
+                                    </ul>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(speaker.LinkedInUrl))
+                                {
+                                    <a href="@speaker.LinkedInUrl" target="_blank" rel="noopener noreferrer">Profilo LinkedIn ↗</a>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(speaker.SessionizeUrl))
+                                {
+                                    <a href="@speaker.SessionizeUrl" target="_blank" rel="noopener noreferrer">Profilo Sessionize ↗</a>
+                                }
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </main>
+
+    </div>
+}
+
+@code {
+    [Parameter] public int Year { get; set; }
+    [Parameter] public string Moniker { get; set; } = string.Empty;
+
+    private EventDefinition? eventInfo;
+    private IReadOnlyList<EventSpeakerProfile> speakers = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        eventInfo = await EventCatalog.GetAsync(Year, Moniker);
+        speakers = eventInfo is null
+            ? []
+            : await EventCatalog.GetEventSpeakersAsync(eventInfo.Id);
+    }
+}

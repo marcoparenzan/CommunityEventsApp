@@ -1,0 +1,231 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject SpeakerSelfService SpeakerSelf
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject CommunityLinks Community
+@inject ILogger<MyEventsPanel> Logger
+
+@if (loadFailed)
+{
+    <p class="account-message" role="alert">Non è stato possibile caricare i tuoi eventi. Riprova tra poco.</p>
+}
+else if (events is null)
+{
+    <p role="status">Caricamento…</p>
+}
+else if (events.Count == 0)
+{
+    <p class="account-help">Non ci sono ancora eventi sincronizzati associati al tuo profilo speaker.</p>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+    }
+    @for (var index = 0; index < events.Count; index++)
+    {
+        var item = events[index];
+        <details class="my-event" open="@(index == 0)">
+            <summary>
+                <strong>@item.Year · @item.Name</strong>
+                <span>@item.EventDate.ToString("dd/MM/yyyy")@(item.IsPublished ? string.Empty : " · non pubblicato")</span>
+            </summary>
+
+            @if (item.IsPublished)
+            {
+                <p><a href="@Community.EventUrl(item.Year, item.Moniker)" target="_blank" rel="noopener noreferrer">Apri la pagina pubblica dell’evento ↗</a></p>
+            }
+
+            @if (!string.IsNullOrEmpty(item.TemplateFileName))
+            {
+                <section class="my-event-block">
+                    <h3>Template PowerPoint</h3>
+                    <p><a class="event-button" href="/api/speaker/events/@item.EventId/slide-template" download>Scarica il template (@item.TemplateFileName)</a></p>
+                </section>
+            }
+
+            <section class="my-event-block">
+                <h3>Cena speaker e albergo</h3>
+                <label class="account-consent">
+                    <input type="checkbox" @bind="eventDrafts[item.EventId].AttendsDinner" />
+                    Partecipo alla cena speaker
+                </label>
+                @if (eventDrafts[item.EventId].AttendsDinner)
+                {
+                    <label>Accompagnatori alla cena
+                        <input type="number" min="0" max="@SpeakerSelfService.MaximumDinnerGuests" @bind="eventDrafts[item.EventId].Guests" />
+                    </label>
+                }
+                <label>Albergo
+                    <select @bind="eventDrafts[item.EventId].HotelId">
+                        <option value="">Nessuno / non serve</option>
+                        @foreach (var hotel in hotels)
+                        {
+                            <option value="@hotel.Id">@hotel.Name</option>
+                        }
+                    </select>
+                </label>
+                @if (hotels.FirstOrDefault(h => h.Id == eventDrafts[item.EventId].HotelId) is { Url.Length: > 0 } chosen)
+                {
+                    <p class="account-help"><a href="@chosen.Url" target="_blank" rel="noopener noreferrer">Sito di @chosen.Name ↗</a></p>
+                }
+                <button type="button" class="event-button" @onclick="() => SaveEventAsync(item)" disabled="@busy">Salva cena e albergo</button>
+            </section>
+
+            <section class="my-event-block">
+                <h3>Le tue sessioni</h3>
+                @if (item.Sessions.Count == 0)
+                {
+                    <p class="account-help">Nessuna sessione assegnata al tuo profilo in questo evento.</p>
+                }
+                @foreach (var session in item.Sessions)
+                {
+                    var key = (item.EventId, session.SessionId);
+                    var draft = sessionDrafts[key];
+                    <article class="my-session">
+                        <h4>@session.Title</h4>
+                        <p class="account-help">@session.StartsAt.ToItaly().ToString("HH:mm")@(string.IsNullOrWhiteSpace(session.Room) ? string.Empty : $" · {session.Room}")</p>
+                        <label>Descrizione
+                            <textarea rows="6" @bind="draft.Description" maxlength="@SpeakerSelfService.MaximumDescriptionLength"></textarea>
+                        </label>
+                        <p class="account-help">@(session.DescriptionEdited ? "Hai modificato la descrizione importata da Sessionize: lasciando il campo vuoto torna quella di Sessionize." : "Descrizione importata da Sessionize: se la modifichi, la sincronizzazione non la sovrascrive più.")</p>
+                        <label>Link alle slide
+                            <input type="url" @bind="draft.PresentationUrl" maxlength="512" placeholder="https://…" />
+                        </label>
+                        <label>Link al repository (GitHub)
+                            <input type="url" @bind="draft.RepositoryUrl" maxlength="512" placeholder="https://github.com/…" />
+                        </label>
+                        <button type="button" class="event-button" @onclick="() => SaveSessionAsync(item, session)" disabled="@busy">Salva sessione</button>
+                    </article>
+                }
+            </section>
+        </details>
+    }
+}
+
+@code {
+    private sealed class EventDraft
+    {
+        public bool AttendsDinner { get; set; }
+        public int Guests { get; set; }
+        public int? HotelId { get; set; }
+    }
+
+    private sealed class SessionDraft
+    {
+        public string Description { get; set; } = string.Empty;
+        public string PresentationUrl { get; set; } = string.Empty;
+        public string RepositoryUrl { get; set; } = string.Empty;
+    }
+
+    private IReadOnlyList<MyEventItem>? events;
+    private IReadOnlyList<HotelOption> hotels = [];
+    private readonly Dictionary<int, EventDraft> eventDrafts = [];
+    private readonly Dictionary<(int, string), SessionDraft> sessionDrafts = [];
+    private int speakerId;
+    private bool loadFailed;
+    private bool busy;
+    private bool isError;
+    private string message = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (!int.TryParse(state.User.FindFirst("speaker_id")?.Value, out speakerId))
+        {
+            loadFailed = true;
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            hotels = await SpeakerSelf.GetHotelsAsync();
+            events = await SpeakerSelf.GetMyEventsAsync(speakerId);
+            eventDrafts.Clear();
+            sessionDrafts.Clear();
+            foreach (var item in events)
+            {
+                eventDrafts[item.EventId] = new EventDraft { AttendsDinner = item.AttendsDinner, Guests = item.DinnerGuests, HotelId = item.HotelId };
+                foreach (var session in item.Sessions)
+                {
+                    sessionDrafts[(item.EventId, session.SessionId)] = new SessionDraft
+                    {
+                        Description = session.Description,
+                        PresentationUrl = session.PresentationUrl,
+                        RepositoryUrl = session.RepositoryUrl
+                    };
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the speaker's events.");
+            loadFailed = true;
+        }
+    }
+
+    private async Task RunAsync(Func<Task<string>> action)
+    {
+        if (busy)
+        {
+            return;
+        }
+
+        busy = true;
+        isError = false;
+        message = string.Empty;
+        try
+        {
+            message = await action();
+        }
+        catch (InvalidOperationException exception)
+        {
+            message = exception.Message;
+            isError = true;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "A speaker self-service action failed.");
+            message = "L’operazione non è riuscita. Riprova tra poco.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private Task SaveEventAsync(MyEventItem item) => RunAsync(async () =>
+    {
+        var draft = eventDrafts[item.EventId];
+        var saved = await SpeakerSelf.SaveEventInfoAsync(speakerId, item.EventId, draft.AttendsDinner, draft.Guests, draft.HotelId);
+        if (!saved)
+        {
+            isError = true;
+            return "Evento non trovato.";
+        }
+
+        await LoadAsync();
+        return $"Cena e albergo di {item.Name} salvati.";
+    });
+
+    private Task SaveSessionAsync(MyEventItem item, MySessionItem session) => RunAsync(async () =>
+    {
+        var draft = sessionDrafts[(item.EventId, session.SessionId)];
+        var saved = await SpeakerSelf.SaveSessionAsync(
+            speakerId, item.EventId, session.SessionId, draft.Description, draft.PresentationUrl, draft.RepositoryUrl);
+        if (!saved)
+        {
+            isError = true;
+            return "La sessione non risulta assegnata al tuo profilo speaker.";
+        }
+
+        await LoadAsync();
+        return $"Sessione “{session.Title}” salvata.";
+    });
+}

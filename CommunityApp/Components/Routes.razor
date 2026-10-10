@@ -1,0 +1,17 @@
+@using Microsoft.AspNetCore.Components.Authorization
+
+<Router AppAssembly="typeof(Program).Assembly" AdditionalAssemblies="new[] { typeof(EventsCommon.Hosting.EventAppHost).Assembly }">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <main class="account-site">
+                    <section class="account-content">
+                        <h1>Accesso richiesto</h1>
+                        <p>Accedi con un account autorizzato per utilizzare questa pagina.</p>
+                        <a class="event-button" href="/account">Vai all’area personale</a>
+                    </section>
+                </main>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+    </Found>
+</Router>

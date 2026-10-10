@@ -1,0 +1,479 @@
+@page "/sponsors"
+@attribute [Authorize(Policy = "SuperUser")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@inject SponsorAdminService SponsorService
+@inject ILogger<SponsorAdmin> Logger
+
+<PageTitle>Sponsor · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell sponsor-page">
+    @if (years.Count == 0)
+    {
+        <section class="account-card"><p>Per gestire gli sponsor serve almeno un evento: crealo in Gestione eventi.</p></section>
+    }
+    else
+    {
+        <nav class="admin-letter-tabs" role="tablist" aria-label="Anno">
+            @foreach (var year in years)
+            {
+                var current = year;
+                <button type="button" role="tab" class="@(selectedYear == current ? "active" : null)" aria-selected="@(selectedYear == current)" @onclick="() => SelectYear(current)">@current</button>
+            }
+        </nav>
+
+        <div class="sponsor-toolbar">
+            <label for="sponsor-scope">Mostra</label>
+            <select id="sponsor-scope" @bind="scopeEventId">
+                <option value="">Tutti gli eventi del @selectedYear</option>
+                @foreach (var item in YearEvents)
+                {
+                    <option value="@item.Id">@item.Date.ToString("yyyy-MM-dd") · @item.Name</option>
+                }
+            </select>
+            <button type="button" class="admin-event-create-button" @onclick="NewSponsor">Nuovo sponsor</button>
+            <button type="button" @onclick="OpenCopy" disabled="@(!VisibleSponsors.Any())">Copia sponsor in un altro anno o evento…</button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(message)) { <p role="status">@message</p> }
+
+        <section class="admin-create">
+            @if (!VisibleSponsors.Any())
+            {
+                <p>Nessuno sponsor @(scopeEventId is null ? $"per il {selectedYear}" : "per questo evento"). Aggiungine uno con “Nuovo sponsor” oppure copia quelli di un altro anno.</p>
+            }
+            <div class="admin-speaker-list">
+                @foreach (var sponsor in VisibleSponsors)
+                {
+                    <article class="admin-speaker-row sponsor-row">
+                        @if (!string.IsNullOrEmpty(sponsor.LogoDataUri))
+                        {
+                            <img class="sponsor-logo" src="@sponsor.LogoDataUri" alt="Logo @sponsor.Name" />
+                        }
+                        else
+                        {
+                            <span class="sponsor-logo sponsor-logo-empty" aria-hidden="true">—</span>
+                        }
+                        <div>
+                            <strong>@sponsor.Name</strong> <span class="admin-event-badge">@sponsor.Tier</span>
+                            <p><a href="@sponsor.Url" target="_blank" rel="noopener noreferrer">@sponsor.Url</a></p>
+                            <p class="admin-user-events">@foreach (var label in EventLabels(sponsor)) { <span class="admin-event-badge attended">@label</span> }</p>
+                        </div>
+                        <div class="admin-actions">
+                            <button type="button" @onclick="() => EditSponsor(sponsor)">Modifica</button>
+                            @if (removingId == sponsor.Id)
+                            {
+                                <button type="button" class="admin-cancel-event" @onclick="() => RemoveFromScopeAsync(sponsor)" disabled="@busy">Conferma</button>
+                                <button type="button" @onclick="() => removingId = null">Annulla</button>
+                            }
+                            else
+                            {
+                                <button type="button" @onclick="() => { removingId = sponsor.Id; deletingId = null; }">@(scopeEventId is null ? $"Togli dal {selectedYear}" : "Togli dall’evento")</button>
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+        </section>
+
+        @if (OrphanSponsors.Any())
+        {
+            <section class="admin-create">
+                <h3>Non collegati a nessun evento</h3>
+                <p class="admin-help">Questi sponsor sono nel registro ma non compaiono in nessun evento: modificali per collegarli, oppure eliminali.</p>
+                <div class="admin-speaker-list">
+                    @foreach (var sponsor in OrphanSponsors)
+                    {
+                        <article class="admin-speaker-row sponsor-row">
+                            @if (!string.IsNullOrEmpty(sponsor.LogoDataUri))
+                            {
+                                <img class="sponsor-logo" src="@sponsor.LogoDataUri" alt="Logo @sponsor.Name" />
+                            }
+                            else
+                            {
+                                <span class="sponsor-logo sponsor-logo-empty" aria-hidden="true">—</span>
+                            }
+                            <div><strong>@sponsor.Name</strong> <span class="admin-event-badge">@sponsor.Tier</span><p><a href="@sponsor.Url" target="_blank" rel="noopener noreferrer">@sponsor.Url</a></p></div>
+                            <div class="admin-actions">
+                                <button type="button" @onclick="() => EditSponsor(sponsor)">Modifica</button>
+                                @if (deletingId == sponsor.Id)
+                                {
+                                    <button type="button" class="admin-cancel-event" @onclick="() => DeleteAsync(sponsor)" disabled="@busy">Conferma eliminazione</button>
+                                    <button type="button" @onclick="() => deletingId = null">Annulla</button>
+                                }
+                                else
+                                {
+                                    <button type="button" @onclick="() => { deletingId = sponsor.Id; removingId = null; }">Elimina</button>
+                                }
+                            </div>
+                        </article>
+                    }
+                </div>
+            </section>
+        }
+    }
+</main>
+</div>
+
+@if (draft is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CloseDialog">
+        <section class="admin-event-dialog" role="dialog" aria-modal="true" aria-labelledby="sponsor-dialog-title" @onclick:stopPropagation>
+            <button class="admin-event-dialog-close" type="button" aria-label="Chiudi" @onclick="CloseDialog" disabled="@busy">×</button>
+            <h2 id="sponsor-dialog-title">@(draft.Id is null ? "Nuovo sponsor" : "Modifica sponsor")</h2>
+            <label class="admin-wide">Nome <input @bind="draft.Name" maxlength="128" /></label>
+            <label class="admin-wide">Sito web <input type="url" @bind="draft.Url" maxlength="512" placeholder="https://…" /></label>
+            <label>Livello
+                <input @bind="draft.Tier" maxlength="50" list="sponsor-tiers" />
+                <datalist id="sponsor-tiers">
+                    @foreach (var tier in tiers) { <option value="@tier"></option> }
+                </datalist>
+            </label>
+            <div class="admin-wide">
+                <span class="admin-field-label">Logo (PNG, JPEG, WebP o GIF, massimo 1 MB)</span>
+                @if (!string.IsNullOrEmpty(logoPreview))
+                {
+                    <p><img class="sponsor-logo sponsor-logo-large" src="@logoPreview" alt="Anteprima del logo" /></p>
+                }
+                <InputFile OnChange="OnLogoSelected" accept="image/png,image/jpeg,image/webp,image/gif" disabled="@busy" />
+            </div>
+            <fieldset class="admin-wide sponsor-events">
+                <legend>Eventi del @selectedYear in cui compare</legend>
+                @foreach (var item in YearEvents)
+                {
+                    var eventId = item.Id;
+                    <label class="account-consent">
+                        <input type="checkbox" checked="@draft.EventIds.Contains(eventId)" @onchange="args => ToggleEvent(eventId, Convert.ToBoolean(args.Value))" />
+                        @item.Date.ToString("yyyy-MM-dd") · @item.Name
+                    </label>
+                }
+            </fieldset>
+            @if (draft.Id is int editedId && TotalLinks(editedId) > YearLinks(editedId))
+            {
+                <p class="admin-help">Questo sponsor compare anche in eventi di altri anni: la modifica di nome, sito, livello e logo vale per tutti.</p>
+            }
+            @if (!string.IsNullOrEmpty(error)) { <p class="admin-help" role="alert">@error</p> }
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CloseDialog" disabled="@busy">Annulla</button>
+                <button type="button" @onclick="SaveAsync" disabled="@busy">@(busy ? "Salvataggio…" : "Salva sponsor")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (copyOpen)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CloseCopy">
+        <section class="admin-event-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="sponsor-copy-title" @onclick:stopPropagation>
+            <h2 id="sponsor-copy-title">Copia sponsor</h2>
+            <p>Gli sponsor di <strong>@ScopeLabel</strong> (@VisibleSponsors.Count()) verranno collegati a:</p>
+            <select @bind="copyTarget">
+                <option value="">Scegli la destinazione…</option>
+                @foreach (var targetYear in years.Where(y => y != selectedYear || scopeEventId is not null))
+                {
+                    <option value="year:@targetYear">Tutti gli eventi del @targetYear</option>
+                }
+                @foreach (var item in events.Where(e => !ScopeEvents.Any(s => s.Id == e.Id)))
+                {
+                    <option value="event:@item.Id">@item.Date.ToString("yyyy-MM-dd") · @item.Name</option>
+                }
+            </select>
+            <p class="admin-help">Gli sponsor già presenti nella destinazione restano come sono. Poi puoi modificarli o toglierli dalla destinazione.</p>
+            @if (!string.IsNullOrEmpty(error)) { <p class="admin-help" role="alert">@error</p> }
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CloseCopy" disabled="@busy">Annulla</button>
+                <button type="button" @onclick="CopyAsync" disabled="@(busy || string.IsNullOrEmpty(copyTarget))">@(busy ? "Copia…" : "Copia")</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<SponsorEventOption> events = [];
+    private IReadOnlyList<SponsorRow> sponsors = [];
+    private IReadOnlyList<string> tiers = [];
+    private IReadOnlyList<int> years = [];
+    private int selectedYear;
+    private int? scopeEventId;
+    private string message = string.Empty;
+    private string error = string.Empty;
+    private bool busy;
+    private int? removingId;
+    private int? deletingId;
+
+    private SponsorDraft? draft;
+    private SponsorLogo? pendingLogo;
+    private string logoPreview = string.Empty;
+
+    private bool copyOpen;
+    private string copyTarget = string.Empty;
+
+    private IEnumerable<SponsorEventOption> YearEvents => events.Where(e => e.Year == selectedYear);
+    private IEnumerable<SponsorEventOption> ScopeEvents => scopeEventId is int id ? events.Where(e => e.Id == id) : YearEvents;
+    private string ScopeLabel => scopeEventId is int id ? events.First(e => e.Id == id).Name : $"tutti gli eventi del {selectedYear}";
+
+    private IEnumerable<SponsorRow> VisibleSponsors
+    {
+        get
+        {
+            var scope = ScopeEvents.Select(e => e.Id).ToHashSet();
+            return sponsors.Where(s => s.EventIds.Any(scope.Contains));
+        }
+    }
+
+    private IEnumerable<SponsorRow> OrphanSponsors => sponsors.Where(s => s.EventIds.Count == 0);
+
+    private int TotalLinks(int sponsorId) => sponsors.FirstOrDefault(s => s.Id == sponsorId)?.EventIds.Count ?? 0;
+    private int YearLinks(int sponsorId)
+    {
+        var inYear = YearEvents.Select(e => e.Id).ToHashSet();
+        return sponsors.FirstOrDefault(s => s.Id == sponsorId)?.EventIds.Count(inYear.Contains) ?? 0;
+    }
+
+    private IEnumerable<string> EventLabels(SponsorRow sponsor)
+    {
+        var inYear = YearEvents.Where(e => sponsor.EventIds.Contains(e.Id)).ToList();
+        if (inYear.Count > 0 && inYear.Count == YearEvents.Count() && YearEvents.Count() > 1)
+        {
+            yield return $"Tutti gli eventi del {selectedYear}";
+            yield break;
+        }
+
+        foreach (var item in inYear)
+        {
+            yield return item.Name;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // Anno iniziale: quello dell'evento corrente o più recente.
+        selectedYear = years.Count > 0 ? years[0] : 0;
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            events = await SponsorService.GetEventsAsync();
+            sponsors = await SponsorService.GetSponsorsAsync();
+            tiers = await SponsorService.GetTiersAsync();
+            years = events.Select(e => e.Year).Distinct().OrderByDescending(y => y).ToList();
+            if (selectedYear != 0 && !years.Contains(selectedYear))
+            {
+                selectedYear = years.FirstOrDefault();
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the sponsors.");
+            message = "Non è stato possibile caricare gli sponsor.";
+        }
+    }
+
+    private void SelectYear(int year)
+    {
+        selectedYear = year;
+        scopeEventId = null;
+        removingId = null;
+    }
+
+    private void NewSponsor()
+    {
+        error = string.Empty;
+        pendingLogo = null;
+        logoPreview = string.Empty;
+        draft = new SponsorDraft
+        {
+            EventIds = ScopeEvents.Select(e => e.Id).ToHashSet()
+        };
+    }
+
+    private void EditSponsor(SponsorRow sponsor)
+    {
+        error = string.Empty;
+        pendingLogo = null;
+        logoPreview = sponsor.LogoDataUri;
+        var inYear = YearEvents.Select(e => e.Id).ToHashSet();
+        draft = new SponsorDraft
+        {
+            Id = sponsor.Id,
+            Name = sponsor.Name,
+            Url = sponsor.Url,
+            Tier = sponsor.Tier,
+            EventIds = sponsor.EventIds.Where(inYear.Contains).ToHashSet()
+        };
+    }
+
+    private void ToggleEvent(int eventId, bool linked)
+    {
+        if (draft is null)
+        {
+            return;
+        }
+
+        if (linked) draft.EventIds.Add(eventId); else draft.EventIds.Remove(eventId);
+    }
+
+    private void CloseDialog()
+    {
+        if (!busy)
+        {
+            draft = null;
+        }
+    }
+
+    private async Task OnLogoSelected(InputFileChangeEventArgs args)
+    {
+        error = string.Empty;
+        try
+        {
+            await using var upload = args.File.OpenReadStream(maxAllowedSize: SponsorAdminService.MaximumLogoBytes);
+            using var buffer = new MemoryStream();
+            await upload.CopyToAsync(buffer);
+            pendingLogo = SponsorAdminService.CreateLogo(buffer.ToArray(), args.File.Name);
+            logoPreview = $"data:{pendingLogo.ContentType};base64,{Convert.ToBase64String(pendingLogo.Content)}";
+        }
+        catch (InvalidOperationException exception)
+        {
+            pendingLogo = null;
+            error = exception.Message;
+        }
+        catch (IOException)
+        {
+            pendingLogo = null;
+            error = "Il logo deve pesare al massimo 1 MB.";
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (draft is null || busy)
+        {
+            return;
+        }
+
+        busy = true;
+        error = string.Empty;
+        try
+        {
+            await SponsorService.SaveAsync(draft, pendingLogo, YearEvents.Select(e => e.Id).ToList());
+            message = $"Sponsor “{draft.Name.Trim()}” salvato.";
+            draft = null;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not save the sponsor.");
+            error = "Non è stato possibile salvare lo sponsor.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task RemoveFromScopeAsync(SponsorRow sponsor)
+    {
+        busy = true;
+        try
+        {
+            await SponsorService.RemoveFromEventsAsync(sponsor.Id, ScopeEvents.Select(e => e.Id).ToList());
+            message = $"“{sponsor.Name}” tolto da {ScopeLabel}.";
+            removingId = null;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not unlink the sponsor.");
+            message = "Non è stato possibile togliere lo sponsor.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(SponsorRow sponsor)
+    {
+        busy = true;
+        try
+        {
+            message = await SponsorService.DeleteAsync(sponsor.Id) ? $"Sponsor “{sponsor.Name}” eliminato." : "Lo sponsor non esiste più.";
+            deletingId = null;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not delete the sponsor.");
+            message = "Non è stato possibile eliminare lo sponsor.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void OpenCopy()
+    {
+        error = string.Empty;
+        copyTarget = string.Empty;
+        copyOpen = true;
+    }
+
+    private void CloseCopy()
+    {
+        if (!busy)
+        {
+            copyOpen = false;
+        }
+    }
+
+    private async Task CopyAsync()
+    {
+        busy = true;
+        error = string.Empty;
+        try
+        {
+            List<int> targets;
+            if (copyTarget.StartsWith("year:", StringComparison.Ordinal))
+            {
+                var year = int.Parse(copyTarget["year:".Length..]);
+                targets = events.Where(e => e.Year == year).Select(e => e.Id).ToList();
+            }
+            else
+            {
+                targets = [int.Parse(copyTarget["event:".Length..])];
+            }
+
+            var sourceIds = ScopeEvents.Select(e => e.Id).ToList();
+            targets.RemoveAll(sourceIds.Contains);
+            var created = await SponsorService.CopyAsync(sourceIds, targets);
+            message = created == 0
+                ? "Nessuno sponsor copiato: erano già tutti presenti nella destinazione."
+                : $"Copia completata: {created} collegamenti creati.";
+            copyOpen = false;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not copy the sponsors.");
+            error = "Non è stato possibile copiare gli sponsor.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

@@ -1,0 +1,75 @@
+@page "/import"
+@attribute [Authorize(Policy = "SuperUser")]
+@using Microsoft.AspNetCore.Authorization
+@inject EventCatalogService EventCatalog
+
+<PageTitle>Importa · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell import-page">
+    <nav class="admin-letter-tabs" role="tablist" aria-label="Tipo di importazione">
+        <button type="button" role="tab" class="@(tab == "speakers" ? "active" : null)" aria-selected="@(tab == "speakers")" @onclick='() => tab = "speakers"'>Speaker (Sessionize)</button>
+        <button type="button" role="tab" class="@(tab == "users" ? "active" : null)" aria-selected="@(tab == "users")" @onclick='() => tab = "users"'>Utenti</button>
+        <button type="button" role="tab" class="@(tab == "attendees" ? "active" : null)" aria-selected="@(tab == "attendees")" @onclick='() => tab = "attendees"'>Partecipanti evento</button>
+        <button type="button" role="tab" class="@(tab == "materials" ? "active" : null)" aria-selected="@(tab == "materials")" @onclick='() => tab = "materials"'>Materiali sessioni</button>
+    </nav>
+
+    @if (tab is "attendees" or "materials")
+    {
+        <div class="import-event-row">
+            <label for="import-event">Evento</label>
+            <select id="import-event" @bind="selectedEventId">
+                @foreach (var item in events)
+                {
+                    <option value="@item.Id">@item.EventDate · @item.Name</option>
+                }
+            </select>
+        </div>
+    }
+
+    <section class="account-card">
+        @switch (tab)
+        {
+            case "speakers":
+                <SpeakerImportPanel />
+                break;
+            case "users":
+                <UserImportPanel />
+                break;
+            case "attendees":
+                @if (selectedEventId is int attendeesEvent)
+                {
+                    <UserImportPanel @key="attendeesEvent" EventId="attendeesEvent" />
+                }
+                else
+                {
+                    <p>Non ci sono eventi.</p>
+                }
+                break;
+            case "materials":
+                @if (selectedEventId is int materialsEvent)
+                {
+                    <MaterialsImportPanel @key="materialsEvent" EventId="materialsEvent" />
+                }
+                else
+                {
+                    <p>Non ci sono eventi.</p>
+                }
+                break;
+        }
+    </section>
+</main>
+</div>
+
+@code {
+    private string tab = "speakers";
+    private IReadOnlyList<EventDefinition> events = [];
+    private int? selectedEventId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        events = (await EventCatalog.GetAllAsync()).OrderByDescending(item => item.EventDate).ToList();
+        selectedEventId = (events.FirstOrDefault(item => item.IsCurrent) ?? events.FirstOrDefault())?.Id;
+    }
+}

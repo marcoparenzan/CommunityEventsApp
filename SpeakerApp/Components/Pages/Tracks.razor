@@ -1,0 +1,141 @@
+@page "/tracks"
+@attribute [Authorize(Policy = "Speaker")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@inject SpeakerSelfService SpeakerSelf
+@inject EventCatalogService EventCatalog
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ILogger<Tracks> Logger
+
+<PageTitle>Track · 1nn0va</PageTitle>
+
+<div class="account-site">
+<AccountTopbar />
+<main class="admin-shell track-page">
+    @if (loadFailed)
+    {
+        <section class="account-card"><p class="account-message" role="alert">Non è stato possibile caricare le track. Riprova tra poco.</p></section>
+    }
+    else if (events is null)
+    {
+        <p role="status">Caricamento…</p>
+    }
+    else if (events.Count == 0)
+    {
+        <section class="account-card"><p class="account-help">Non ci sono ancora eventi sincronizzati associati al tuo profilo speaker.</p></section>
+    }
+    else
+    {
+        @if (events.Count > 1)
+        {
+            <div class="sponsor-toolbar">
+                <label for="track-event">Evento</label>
+                <select id="track-event" @bind="selectedEventId" @bind:after="LoadEventAsync">
+                    @foreach (var item in events)
+                    {
+                        <option value="@item.EventId">@item.EventDate.ToString("yyyy-MM-dd") · @item.Name</option>
+                    }
+                </select>
+            </div>
+        }
+        else
+        {
+            <h2 class="track-event-title">@events[0].Name</h2>
+        }
+
+        @if (rooms.Count == 0)
+        {
+            <section class="account-card"><p class="account-help">L’agenda di questo evento sarà pubblicata a breve.</p></section>
+        }
+        else
+        {
+            <nav class="admin-letter-tabs" role="tablist" aria-label="Track (aule)">
+                @for (var index = 0; index < rooms.Count; index++)
+                {
+                    var roomIndex = index;
+                    <button type="button" role="tab" class="@(selectedRoom == roomIndex ? "active" : null)" aria-selected="@(selectedRoom == roomIndex)" @onclick="() => selectedRoom = roomIndex">
+                        @rooms[roomIndex].Name
+                        @if (rooms[roomIndex].Sessions.Any(IsMine)) { <span class="track-mine-dot" title="Hai una sessione in questa aula">●</span> }
+                    </button>
+                }
+            </nav>
+
+            <section class="account-card">
+                @foreach (var session in rooms[selectedRoom].Sessions)
+                {
+                    <article class="track-session @(IsMine(session) ? "mine" : null)">
+                        <div class="track-time">@session.StartsAt.ToItaly().ToString("HH:mm")–@session.EndsAt.ToItaly().ToString("HH:mm")</div>
+                        <div>
+                            <h3>@session.Title @if (IsMine(session)) { <span class="admin-event-badge attended">La tua sessione</span> }</h3>
+                            @if (session.Speakers?.Count > 0)
+                            {
+                                <p class="track-speakers">@string.Join(", ", session.Speakers.Select(s => s.Name))</p>
+                            }
+                        </div>
+                    </article>
+                }
+            </section>
+        }
+    }
+</main>
+</div>
+
+@code {
+    private sealed record Room(string Name, IReadOnlyList<Session> Sessions);
+
+    private IReadOnlyList<MyEventItem>? events;
+    private IReadOnlyList<Room> rooms = [];
+    private HashSet<string> mine = [];
+    private int selectedEventId;
+    private int selectedRoom;
+    private bool loadFailed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (!int.TryParse(state.User.FindFirst("speaker_id")?.Value, out var speakerId))
+        {
+            loadFailed = true;
+            return;
+        }
+
+        try
+        {
+            events = await SpeakerSelf.GetMyEventsAsync(speakerId);
+            if (events.Count > 0)
+            {
+                selectedEventId = events[0].EventId;
+                await LoadEventAsync();
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the tracks.");
+            loadFailed = true;
+        }
+    }
+
+    private bool IsMine(Session session) => mine.Contains(session.Id?.ToString() ?? string.Empty);
+
+    private async Task LoadEventAsync()
+    {
+        try
+        {
+            mine = events!.First(item => item.EventId == selectedEventId).Sessions.Select(s => s.SessionId).ToHashSet(StringComparer.Ordinal);
+            var sessions = await EventCatalog.GetSessionsAsync(selectedEventId);
+            rooms = sessions
+                .GroupBy(session => string.IsNullOrWhiteSpace(session.Room) ? "Aula da definire" : session.Room)
+                .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase)
+                .Select(group => new Room(group.Key, group.OrderBy(session => session.StartsAt).ToList()))
+                .ToList();
+            // Si parte dall'aula in cui hai una sessione.
+            var own = rooms.ToList().FindIndex(room => room.Sessions.Any(IsMine));
+            selectedRoom = own >= 0 ? own : 0;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the agenda of event {EventId}.", selectedEventId);
+            loadFailed = true;
+        }
+    }
+}

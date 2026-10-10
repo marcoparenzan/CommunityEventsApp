@@ -1,0 +1,647 @@
+@page "/account"
+@page "/account/upcoming"
+@page "/account/past"
+@implements IDisposable
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject ISiteLinks Links
+@inject IJSRuntime JS
+@inject EventCatalogService EventCatalog
+@inject NavigationManager Navigation
+@inject ILogger<Account> Logger
+
+<PageTitle>Area personale · 1nn0va</PageTitle>
+
+<main class="account-site">
+    <AccountTopbar />
+
+    <section class="account-content">
+        @if (!accountChecked)
+        {
+            <p role="status">Controllo la tua sessione…</p>
+        }
+        else if (isAuthenticated)
+        {
+            <section class="account-card account-dashboard speaker-home">
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+                }
+
+                @if (CurrentRows.Count == 0)
+                {
+                    <p class="account-help">@EmptyMessage</p>
+                }
+                else
+                {
+                    <div class="account-events-list">
+                        @foreach (var row in CurrentRows)
+                        {
+                            @RenderRow(row)
+                        }
+                    </div>
+                }
+            </section>
+        }
+        else
+        {
+            <h1>Accedi o registrati</h1>
+            <section class="account-card">
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <p class="account-message" role="@(isError ? "alert" : "status")">@message</p>
+                }
+                @if (!pinRequested)
+                {
+                    <p>Inserisci i tuoi dati: ti inviamo via email un PIN numerico a 16 cifre e un link per accedere direttamente. Il codice attivo resta valido finché non ne richiedi uno nuovo.</p>
+                    <form @onsubmit="RequestPinAsync" @onsubmit:preventDefault>
+                        <label for="account-first-name">Nome</label>
+                        <input id="account-first-name" @bind="firstName" autocomplete="given-name" required maxlength="64" />
+                        <label for="account-last-name">Cognome</label>
+                        <input id="account-last-name" @bind="lastName" autocomplete="family-name" required maxlength="64" />
+                        <label for="account-email">Email</label>
+                        <input id="account-email" type="email" @bind="email" autocomplete="email" required maxlength="128" />
+                        <label class="account-consent">
+                            <input type="checkbox" @bind="allowEventNotifications" />
+                            Acconsento a ricevere comunicazioni sugli eventi 1nn0va.
+                        </label>
+                        <button class="event-button" type="submit" disabled="@busy">@(busy ? "Invio..." : "Invia PIN")</button>
+                    </form>
+                }
+                else
+                {
+                    <p>Abbiamo inviato un’email a <strong>@email</strong>. Apri il link che contiene oppure inserisci qui il PIN.</p>
+                    <form @onsubmit="VerifyPinAsync" @onsubmit:preventDefault>
+                        <label for="account-pin">PIN ricevuto via email</label>
+                        <input id="account-pin" @bind="pin" inputmode="numeric" autocomplete="one-time-code" required minlength="16" maxlength="16" pattern="[0-9]{16}" />
+                        <button class="event-button" type="submit" disabled="@busy">Verifica e accedi</button>
+                    </form>
+                    <p><button type="button" class="account-past-toggle" @onclick="ChangeEmail" disabled="@busy">Cambia email o richiedi un nuovo PIN</button></p>
+                }
+            </section>
+        }
+    </section>
+</main>
+
+@if (selectedSpeaker is not null)
+{
+    <div class="speaker-dialog-backdrop" role="presentation" @onclick="CloseSpeakerDialog" @onkeydown="HandleDialogKeydown">
+        <section class="speaker-dialog" role="dialog" aria-modal="true" aria-labelledby="speaker-dialog-title" @onclick:stopPropagation>
+            <button type="button" class="speaker-dialog-close" aria-label="Chiudi scheda relatore" autofocus @onclick="CloseSpeakerDialog">×</button>
+            @if (!string.IsNullOrWhiteSpace(selectedSpeaker.ProfilePictureUrl))
+            {
+                <img class="speaker-dialog-image" src="@selectedSpeaker.ProfilePictureUrl" alt="" />
+            }
+            <div class="speaker-dialog-content">
+                <p class="event-eyebrow">Relatore</p>
+                <h2 id="speaker-dialog-title">@selectedSpeaker.FullName</h2>
+                @if (!string.IsNullOrWhiteSpace(selectedSpeaker.TagLine))
+                {
+                    <p class="speaker-tagline">@selectedSpeaker.TagLine</p>
+                }
+                @if (!string.IsNullOrWhiteSpace(selectedSpeaker.Bio))
+                {
+                    <p class="speaker-bio">@selectedSpeaker.Bio</p>
+                }
+                @if (!string.IsNullOrWhiteSpace(selectedSpeaker.LinkedInUrl))
+                {
+                    <a class="event-button" href="@selectedSpeaker.LinkedInUrl" target="_blank" rel="noopener noreferrer">Apri il profilo LinkedIn</a>
+                }
+                <a class="event-button" href="@Links.SpeakerProfile(selectedSpeaker.PublicProfileKey)" target="_blank" rel="noopener">Profilo speaker nella community</a>
+                @if (!string.IsNullOrWhiteSpace(selectedSpeaker.SessionizeUrl))
+                {
+                    <a class="event-button event-button-secondary" href="@selectedSpeaker.SessionizeUrl" target="_blank" rel="noopener noreferrer">Apri Sessionize</a>
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@if (action is not null)
+{
+    <div class="admin-event-dialog-backdrop" @onclick="CloseAction">
+        <section class="admin-event-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="account-action-title" @onclick:stopPropagation>
+            <h2 id="account-action-title">@ActionTitle</h2>
+            <p>@action.Row.Event.Name · @action.Row.Event.EventDate</p>
+            @if (action.Kind == ActionKind.Cancel)
+            {
+                <p>Vuoi annullare la tua iscrizione? Potrai iscriverti di nuovo finché l’evento è aperto.</p>
+            }
+            else
+            {
+                <label class="account-consent">
+                    <input type="checkbox" @bind="isEatingPizza" @bind:after="UpdateDietaryPreference" />
+                    Mi fermo a mangiare la pizza.
+                </label>
+                @if (isEatingPizza)
+                {
+                    <label class="account-consent">
+                        <input type="checkbox" @bind="lactoseIntolerant" />
+                        Ho un’intolleranza al lattosio.
+                    </label>
+                }
+                @if (action.Kind == ActionKind.Register)
+                {
+                    <p class="account-help">L’iscrizione sarà completata dopo aver confermato il link che invieremo via email.</p>
+                }
+            }
+            <div class="admin-event-dialog-actions">
+                <button type="button" @onclick="CloseAction" disabled="@busy">Annulla</button>
+                <button type="button" @onclick="ConfirmActionAsync" disabled="@busy">@(busy ? "Attendi…" : ActionConfirmLabel)</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "eventId")]
+    public int? EventId { get; set; }
+
+    private enum ActionKind { Register, Edit, Cancel }
+
+    private sealed record EventRow(EventDefinition Event, ParticipantEventRegistration? Registration);
+
+    private sealed record PendingAction(ActionKind Kind, EventRow Row);
+
+    private sealed record RoomAgenda(string Name, IReadOnlyList<Session> Sessions);
+
+    private sealed class AgendaView
+    {
+        public IReadOnlyList<RoomAgenda> Rooms { get; init; } = [];
+        public Dictionary<Guid, EventSpeakerProfile> Speakers { get; init; } = [];
+        public int RoomIndex { get; set; }
+    }
+
+    private string firstName = string.Empty;
+    private string lastName = string.Empty;
+    private string email = string.Empty;
+    private string pin = string.Empty;
+    private string message = string.Empty;
+    private bool allowEventNotifications;
+    private bool pinRequested;
+    private bool isAuthenticated;
+    private bool accountChecked;
+    private bool busy;
+    private bool isError;
+    private bool isEatingPizza;
+    private bool lactoseIntolerant;
+    private IReadOnlyList<EventDefinition> events = [];
+    private IReadOnlyList<ParticipantEventRegistration> registrations = [];
+    private EventDefinition? currentEvent;
+    private EventSpeakerProfile? selectedSpeaker;
+    private PendingAction? action;
+    private readonly HashSet<int> expanded = [];
+    private readonly Dictionary<int, AgendaView> agendas = [];
+
+    private static DateOnly Today => DateOnly.FromDateTime(ItalyTime.Today);
+
+    private static DateOnly DateOf(EventDefinition item) =>
+        DateOnly.TryParse(item.EventDate, out var date) ? date : DateOnly.MaxValue;
+
+    private ParticipantEventRegistration? RegistrationFor(int eventId) =>
+        registrations.FirstOrDefault(item => item.EventId == eventId && item.Status != "Cancelled");
+
+    // L'evento corrente compare nella sua pagina solo se l'utente è iscritto; altrimenti è tra i prossimi eventi.
+    private bool CurrentTabVisible => currentEvent is not null && RegistrationFor(currentEvent.Id) is not null;
+
+    private string ActiveTab
+    {
+        get
+        {
+            var path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+            if (path.EndsWith("/upcoming", StringComparison.OrdinalIgnoreCase))
+            {
+                return "upcoming";
+            }
+
+            if (path.EndsWith("/past", StringComparison.OrdinalIgnoreCase))
+            {
+                return "past";
+            }
+
+            return CurrentTabVisible ? "current" : "upcoming";
+        }
+    }
+
+    private IReadOnlyList<EventRow> CurrentRows
+    {
+        get
+        {
+            var published = events.Where(item => item.IsPublished).ToArray();
+            switch (ActiveTab)
+            {
+                case "current":
+                    return published
+                        .Where(item => item.Id == currentEvent?.Id)
+                        .Select(item => new EventRow(item, RegistrationFor(item.Id)))
+                        .ToArray();
+                case "past":
+                    return published
+                        .Where(item => DateOf(item) < Today && RegistrationFor(item.Id) is not null)
+                        .OrderByDescending(DateOf)
+                        .Select(item => new EventRow(item, RegistrationFor(item.Id)))
+                        .ToArray();
+                default:
+                    return published
+                        .Where(item => DateOf(item) >= Today && !item.IsCancelled &&
+                                       !(CurrentTabVisible && item.Id == currentEvent?.Id))
+                        .OrderBy(DateOf)
+                        .Select(item => new EventRow(item, RegistrationFor(item.Id)))
+                        .ToArray();
+            }
+        }
+    }
+
+    private string EmptyMessage => ActiveTab switch
+    {
+        "past" => "Non hai ancora partecipato a eventi passati.",
+        "current" => "Non c’è un evento corrente a cui sei iscritto.",
+        _ => "Non ci sono prossimi eventi aperti alle iscrizioni."
+    };
+
+    private static string RegistrationStatus(ParticipantEventRegistration registration) =>
+        registration.Status == "AwaitingConfirmation"
+            ? "In attesa di conferma email"
+            : registration.CheckedInAt is null ? "Iscritto" : "Check-in completato";
+
+    // Modificabile: non passato, non cancellato, non bloccato dall'organizzazione.
+    private static bool IsEditable(EventDefinition item) =>
+        DateOf(item) >= Today && !item.IsCancelled && !item.IsLocked;
+
+    // Il check-in compare solo nell'evento corrente, il giorno dell'evento, per chi è iscritto e non l'ha ancora fatto.
+    private static bool CanCheckIn(EventRow row) =>
+        row.Event.IsCurrent && row.Event.IsPublished && !row.Event.IsCancelled &&
+        DateOf(row.Event) == Today &&
+        row.Registration is { Status: "Registered", CheckedInAt: null };
+
+    private static bool CanCancel(EventRow row) =>
+        row.Registration is { } registration &&
+        (registration.Status == "Registered" || registration.Status == "AwaitingConfirmation") &&
+        registration.CheckedInAt is null;
+
+    private string ActionTitle => action?.Kind switch
+    {
+        ActionKind.Register => "Registrarsi all’evento?",
+        ActionKind.Edit => "Modificare le preferenze?",
+        _ => "Annullare l’iscrizione?"
+    };
+
+    private string ActionConfirmLabel => action?.Kind switch
+    {
+        ActionKind.Register => "Registrati",
+        ActionKind.Edit => "Salva modifiche",
+        _ => "Annulla iscrizione"
+    };
+
+    private RenderFragment RenderRow(EventRow row) => @<article class="account-event-row">
+        <div class="account-event-head">
+            <div>
+                <strong>
+                    <a href="@Links.EventPage(row.Event.Year, row.Event.Moniker)" target="_blank" rel="noopener">@row.Event.Name ↗</a>
+                </strong>
+                <p>
+                    @row.Event.EventDate
+                    · @(row.Registration is { } registration ? RegistrationStatus(registration) : "Non iscritto")
+                    @if (row.Event.IsCancelled) { <text> · Evento cancellato</text> }
+                    else if (row.Event.IsLocked && DateOf(row.Event) >= Today) { <text> · Modifiche bloccate dall’organizzazione</text> }
+                </p>
+            </div>
+            <div class="account-event-actions">
+                <button type="button" class="account-past-toggle" disabled="@busy" aria-expanded="@expanded.Contains(row.Event.Id)" @onclick="() => ToggleAgendaAsync(row.Event.Id)">
+                    @(expanded.Contains(row.Event.Id) ? "Nascondi agenda" : (DateOf(row.Event) < Today ? "Agenda e materiali" : "Agenda"))
+                </button>
+                @if (CanCheckIn(row))
+                {
+                    <a class="account-primary" href="/checkin/scan">Fai il check-in: scansiona il QR</a>
+                }
+                @if (IsEditable(row.Event))
+                {
+                    @if (row.Registration is null)
+                    {
+                        <button type="button" class="account-primary" disabled="@busy" @onclick="() => OpenAction(ActionKind.Register, row)">Registrati</button>
+                    }
+                    else if (CanCancel(row))
+                    {
+                        <button type="button" class="account-past-toggle" disabled="@busy" @onclick="() => OpenAction(ActionKind.Edit, row)">Modifica</button>
+                        <button type="button" class="account-cancel-registration" disabled="@busy" @onclick="() => OpenAction(ActionKind.Cancel, row)">Annulla iscrizione</button>
+                    }
+                }
+            </div>
+        </div>
+        @if (expanded.Contains(row.Event.Id) && agendas.TryGetValue(row.Event.Id, out var agenda))
+        {
+            <div class="account-event-agenda">
+                @RenderAgenda(agenda)
+            </div>
+        }
+    </article>;
+
+    private RenderFragment RenderAgenda(AgendaView agenda) => @<text>
+        @if (agenda.Rooms.Count == 0)
+        {
+            <p class="account-help">L’agenda non è disponibile.</p>
+        }
+        else
+        {
+            <div class="event-room-tabs" role="tablist" aria-label="Aule dell’evento">
+                @for (var index = 0; index < agenda.Rooms.Count; index++)
+                {
+                    var roomIndex = index;
+                    <button class="event-room-tab @(agenda.RoomIndex == roomIndex ? "active" : string.Empty)"
+                            type="button"
+                            role="tab"
+                            aria-selected="@(agenda.RoomIndex == roomIndex)"
+                            @onclick="() => agenda.RoomIndex = roomIndex">
+                        @agenda.Rooms[roomIndex].Name
+                    </button>
+                }
+            </div>
+            <section class="event-room" role="tabpanel">
+                @foreach (var session in agenda.Rooms[Math.Min(agenda.RoomIndex, agenda.Rooms.Count - 1)].Sessions)
+                {
+                    <article class="event-session">
+                        <div class="event-session-time">@session.StartsAt.ToItaly().ToString("HH:mm")–@session.EndsAt.ToItaly().ToString("HH:mm")</div>
+                        <div class="event-session-details">
+                            <h4>@session.Title</h4>
+                            @if (session.Speakers?.Count > 0)
+                            {
+                                <p class="event-speakers">
+                                    @for (var speakerIndex = 0; speakerIndex < session.Speakers.Count; speakerIndex++)
+                                    {
+                                        var speaker = session.Speakers[speakerIndex];
+                                        if (speakerIndex > 0)
+                                        {
+                                            <text>, </text>
+                                        }
+                                        if (agenda.Speakers.TryGetValue(speaker.Id, out var profile))
+                                        {
+                                            <button type="button" class="speaker-name-link" @onclick="() => selectedSpeaker = profile">@profile.FullName</button>
+                                        }
+                                        else
+                                        {
+                                            <span>@speaker.Name</span>
+                                        }
+                                    }
+                                </p>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(session.Description))
+                            {
+                                <p>@session.Description</p>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(session.VideoUrl) || !string.IsNullOrWhiteSpace(session.PresentationUrl) || !string.IsNullOrWhiteSpace(session.RepositoryUrl))
+                            {
+                                <div class="event-resource-links">
+                                    @if (!string.IsNullOrWhiteSpace(session.VideoUrl)) { <a href="@session.VideoUrl" target="_blank" rel="noopener">Video</a> }
+                                    @if (!string.IsNullOrWhiteSpace(session.PresentationUrl)) { <a href="@session.PresentationUrl" target="_blank" rel="noopener">Slide</a> }
+                                    @if (!string.IsNullOrWhiteSpace(session.RepositoryUrl)) { <a href="@session.RepositoryUrl" target="_blank" rel="noopener">Codice</a> }
+                                </div>
+                            }
+                        </div>
+                    </article>
+                }
+            </section>
+        }
+    </text>;
+
+    private void CloseSpeakerDialog() => selectedSpeaker = null;
+
+    private void HandleDialogKeydown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            CloseSpeakerDialog();
+        }
+    }
+
+    private async Task<AgendaView> BuildAgendaAsync(int eventId)
+    {
+        var sessions = (await EventCatalog.GetSessionsAsync(eventId))
+            .OrderBy(session => session.StartsAt)
+            .ThenBy(session => session.Room)
+            .ToArray();
+        var rooms = sessions
+            .GroupBy(session => string.IsNullOrWhiteSpace(session.Room) ? "Aula da definire" : session.Room)
+            .OrderBy(group => group.Key, StringComparer.CurrentCultureIgnoreCase)
+            .Select(group => new RoomAgenda(group.Key, group.OrderBy(session => session.StartsAt).ToArray()))
+            .ToArray();
+        var speakers = (await EventCatalog.GetEventSpeakersAsync(eventId)).ToDictionary(speaker => speaker.Id);
+        return new AgendaView { Rooms = rooms, Speakers = speakers };
+    }
+
+    private async Task ToggleAgendaAsync(int eventId)
+    {
+        if (!expanded.Remove(eventId))
+        {
+            try
+            {
+                if (!agendas.ContainsKey(eventId))
+                {
+                    agendas[eventId] = await BuildAgendaAsync(eventId);
+                }
+
+                expanded.Add(eventId);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Could not load the agenda for event {EventId}.", eventId);
+                message = "Non è stato possibile caricare l’agenda.";
+                isError = true;
+            }
+        }
+    }
+
+    private void OpenAction(ActionKind kind, EventRow row)
+    {
+        message = string.Empty;
+        isError = false;
+        isEatingPizza = kind == ActionKind.Edit && row.Registration?.IsEatingPizza == true;
+        lactoseIntolerant = kind == ActionKind.Edit && row.Registration?.LactoseIntolerant == true;
+        action = new PendingAction(kind, row);
+    }
+
+    private void CloseAction()
+    {
+        if (!busy)
+        {
+            action = null;
+        }
+    }
+
+    private void UpdateDietaryPreference()
+    {
+        if (!isEatingPizza)
+        {
+            lactoseIntolerant = false;
+        }
+    }
+
+    private async Task ConfirmActionAsync()
+    {
+        if (action is not { } pending || busy)
+        {
+            return;
+        }
+
+        var eventId = pending.Row.Event.Id;
+        await RunAsync(async () =>
+        {
+            ClientResponse result = pending.Kind switch
+            {
+                ActionKind.Register => await JS.InvokeAsync<ClientResponse>("eventsAccount.register", eventId, new { isEatingPizza, lactoseIntolerant }),
+                ActionKind.Edit => await JS.InvokeAsync<ClientResponse>("eventsAccount.updatePreferences", eventId, new { isEatingPizza, lactoseIntolerant }),
+                _ => await JS.InvokeAsync<ClientResponse>("eventsAccount.cancelRegistration", eventId)
+            };
+            SetResponse(result);
+            if (result.Ok)
+            {
+                await RefreshAccountAsync();
+            }
+        });
+        action = null;
+    }
+
+    /// <summary>?checkin=ok: arriva dallo scanner dopo un check-in riuscito.</summary>
+    [SupplyParameterFromQuery(Name = "checkin")] public string? CheckInResult { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        if (string.Equals(CheckInResult, "ok", StringComparison.OrdinalIgnoreCase))
+        {
+            message = "Check-in completato. Benvenuto all’evento!";
+            isError = false;
+        }
+    }
+
+    // Le rotte /account, /account/upcoming e /account/past usano la stessa istanza del componente.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            events = await EventCatalog.GetAllAsync();
+            currentEvent = events.FirstOrDefault(item => item.IsCurrent && item.IsPublished && !item.IsCancelled);
+            if (currentEvent is not null)
+            {
+                // L'agenda dell'evento corrente è aperta di partenza.
+                agendas[currentEvent.Id] = await BuildAgendaAsync(currentEvent.Id);
+                expanded.Add(currentEvent.Id);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the events catalog for the personal area.");
+            events = [];
+            currentEvent = null;
+            message = "Non è stato possibile caricare gli eventi. " + DatabaseProblem.Describe(exception);
+            isError = true;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await RefreshAccountAsync();
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(exception, "Could not verify the signed-in account in the personal area.");
+                message = "Non è stato possibile verificare la sessione. Ricarica la pagina e riprova.";
+                isError = true;
+                accountChecked = true;
+            }
+
+            StateHasChanged();
+        }
+    }
+
+    private void ChangeEmail()
+    {
+        pinRequested = false;
+        pin = string.Empty;
+        message = string.Empty;
+    }
+
+    private async Task RequestPinAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsAccount.requestPin", new
+            {
+                firstName,
+                lastName,
+                email,
+                allowEventNotifications
+            });
+            SetResponse(result);
+            pinRequested = result.Ok;
+        });
+    }
+
+    private async Task VerifyPinAsync()
+    {
+        await RunAsync(async () =>
+        {
+            var result = await JS.InvokeAsync<ClientResponse>("eventsAccount.verifyPin", new { email, pin });
+            SetResponse(result);
+            if (result.Ok)
+            {
+                // Ricarica la pagina così anche la barra in alto mostra le voci dell'utente connesso.
+                Navigation.NavigateTo("/account", forceLoad: true);
+            }
+        });
+    }
+
+    private async Task RefreshAccountAsync()
+    {
+        var account = await JS.InvokeAsync<AccountResponse?>("eventsAccount.account");
+        isAuthenticated = account is not null;
+        registrations = account?.Registrations ?? [];
+        events = await EventCatalog.GetAllAsync();
+        currentEvent = events.FirstOrDefault(item => item.IsCurrent && item.IsPublished && !item.IsCancelled);
+        accountChecked = true;
+    }
+
+    private async Task RunAsync(Func<Task> work)
+    {
+        busy = true;
+        isError = false;
+        message = string.Empty;
+        try
+        {
+            await work();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "An account action failed.");
+            message = "L’operazione non è riuscita. Riprova tra poco.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void SetResponse(ClientResponse result)
+    {
+        message = result.Message;
+        isError = !result.Ok || result.Warning;
+    }
+
+    private sealed record ClientResponse(bool Ok, string Message, bool Warning = false);
+    private sealed record AccountResponse(
+        string? Email,
+        bool IsSuperUser,
+        bool CanCheckIn,
+        List<ParticipantEventRegistration>? Registrations);
+}

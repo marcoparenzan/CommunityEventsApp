@@ -1,0 +1,142 @@
+@page "/"
+@page "/past"
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Authorization
+@inject EventCatalogService EventCatalog
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ILogger<Index> Logger
+
+<PageTitle>Eventi 1nn0va</PageTitle>
+
+<main class="account-site">
+    <AccountTopbar />
+
+    <section class="account-content">
+        @if (loadFailed)
+        {
+            <p class="account-message" role="alert">Non è stato possibile caricare gli eventi. @loadHint</p>
+        }
+        else if (!IsPast)
+        {
+            <p class="catalog-intro">
+                Gli eventi della community 1nn0va: incontri, sessioni e workshop su sviluppo software, cloud e intelligenza artificiale.
+                Scegli un evento per vedere programma e relatori e per iscriverti. Con l’area personale gestisci le tue iscrizioni,
+                consulti l’agenda e, per gli eventi passati, trovi slide, codice e video.
+            </p>
+
+            @if (upcoming.Count == 0 && cancelledUpcoming.Count == 0)
+            {
+                <p class="account-help">Non ci sono ancora eventi pianificati. Torna a trovarci per i prossimi appuntamenti.</p>
+            }
+            @if (upcoming.Count > 0)
+            {
+                var next = upcoming[0];
+                <article class="catalog-featured">
+                    <p class="catalog-featured-label">Prossimo evento</p>
+                    <h2><a href="/events/@next.Year/@next.Moniker">@next.Name</a></h2>
+                    <p class="catalog-featured-meta">@next.EventDate</p>
+                    <div class="account-event-actions">
+                        <a class="account-primary" href="/account?eventId=@next.Id">Registrati</a>
+                        <a class="account-past-toggle" href="/events/@next.Year/@next.Moniker#agenda">Agenda</a>
+                    </div>
+                </article>
+                @if (upcoming.Count > 1)
+                {
+                    <p class="catalog-year-label">Altri eventi</p>
+                }
+            }
+            <div class="account-events-list">
+                @foreach (var item in upcoming.Skip(1))
+                {
+                    <article class="account-event-row">
+                        <div class="account-event-head">
+                            <div>
+                                <strong><a href="/events/@item.Year/@item.Moniker">@item.Name</a></strong>
+                                <p>@item.EventDate</p>
+                            </div>
+                            <div class="account-event-actions">
+                                <a class="account-past-toggle" href="/events/@item.Year/@item.Moniker#agenda">Agenda</a>
+                                <a class="account-primary" href="/account?eventId=@item.Id">Registrati</a>
+                            </div>
+                        </div>
+                    </article>
+                }
+                @foreach (var item in cancelledUpcoming)
+                {
+                    <article class="account-event-row">
+                        <div class="account-event-head">
+                            <div>
+                                <strong><a href="/events/@item.Year/@item.Moniker">@item.Name</a></strong>
+                                <p>@item.EventDate · <span class="event-cancelled-label">Evento cancellato</span></p>
+                            </div>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+        else
+        {
+            @if (past.Count == 0)
+            {
+                <p class="account-help">Non ci sono ancora eventi passati nel catalogo.</p>
+            }
+            @foreach (var yearGroup in past.GroupBy(item => item.Year).OrderByDescending(group => group.Key))
+            {
+                <p class="catalog-year-label">@yearGroup.Key</p>
+                <div class="account-events-list">
+                    @foreach (var item in yearGroup)
+                    {
+                        <article class="account-event-row">
+                            <div class="account-event-head">
+                                <div>
+                                    <strong><a href="/events/@item.Year/@item.Moniker">@item.Name</a></strong>
+                                    <p>@item.EventDate@(item.IsCancelled ? " · Evento cancellato" : string.Empty)</p>
+                                </div>
+                                <div class="account-event-actions">
+                                    <a class="account-past-toggle" href="/events/@item.Year/@item.Moniker#agenda">Agenda</a>
+                                </div>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        }
+    </section>
+</main>
+
+@code {
+    private bool loadFailed;
+    private string loadHint = string.Empty;
+    private IReadOnlyList<EventDefinition> upcoming = [];
+    private IReadOnlyList<EventDefinition> cancelledUpcoming = [];
+    private IReadOnlyList<EventDefinition> past = [];
+
+    private bool IsPast => new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/').EndsWith("/past", StringComparison.OrdinalIgnoreCase);
+
+    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
+
+    // "/" e "/past" usano la stessa istanza del componente.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Il redirect degli utenti autenticati è gestito dal middleware in Program.cs.
+        try
+        {
+            var today = ItalyTime.Today;
+            upcoming = await EventCatalog.GetUpcomingAsync(today);
+            cancelledUpcoming = await EventCatalog.GetCancelledUpcomingAsync(today);
+            past = await EventCatalog.GetPastAsync(today);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not load the events catalog.");
+            loadFailed = true;
+            loadHint = DatabaseProblem.Describe(exception);
+        }
+    }
+}

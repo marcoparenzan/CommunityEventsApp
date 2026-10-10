@@ -1,0 +1,74 @@
+@page "/totem"
+@page "/events/{Year:int}/{Moniker}/totem"
+@using EventsCommon.Models
+@using EventsCommon.Services
+@inject EventCatalogService EventCatalog
+@inject ISiteLinks Links
+
+<PageTitle>@(eventInfo is null ? "Agenda 1nn0va" : $"{eventInfo.Name} · Agenda")</PageTitle>
+
+<main class="totem-page">
+    @if (eventInfo is null)
+    {
+        <h1>Nessun evento pianificato</h1>
+        <p>Non ci sono eventi disponibili nel catalogo.</p>
+    }
+    else
+    {
+        <header class="totem-header">
+            <a href="@Links.Home"><img src="/img/1nn0va.png" alt="1nn0va" /></a>
+            <div><p>@eventInfo.EventDate</p><h1>@eventInfo.Name</h1></div>
+        </header>
+        <h2>Agenda per aula</h2>
+        @if (sessions.Count == 0)
+        {
+            <p>L'agenda sarà pubblicata a breve.</p>
+        }
+        else
+        {
+            <div class="totem-rooms">
+                @foreach (var roomGroup in sessions.GroupBy(item => string.IsNullOrWhiteSpace(item.Room) ? "Aula da definire" : item.Room).OrderBy(group => group.Key))
+                {
+                    <section class="totem-room">
+                        <h3>@roomGroup.Key</h3>
+                        @foreach (var session in roomGroup.OrderBy(item => item.StartsAt))
+                        {
+                            <article>
+                                <time>@session.StartsAt.ToString("HH:mm")–@session.EndsAt.ToString("HH:mm")</time>
+                                <h4>@session.Title</h4>
+                                @if (session.Speakers?.Count > 0)
+                                {
+                                    <p>@string.Join(", ", session.Speakers.Select(speaker => speaker.Name))</p>
+                                }
+                            </article>
+                        }
+                    </section>
+                }
+            </div>
+        }
+    }
+</main>
+
+@code {
+    [Parameter] public int? Year { get; set; }
+    [Parameter] public string? Moniker { get; set; }
+
+    private EventDefinition? eventInfo;
+    private IReadOnlyList<Session> sessions = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Year is int year && !string.IsNullOrWhiteSpace(Moniker))
+        {
+            eventInfo = await EventCatalog.GetAsync(year, Moniker);
+        }
+        else
+        {
+            var events = await EventCatalog.GetAllAsync();
+            eventInfo = events.FirstOrDefault(item => item.IsPublished && item.IsCurrent)
+                ?? (await EventCatalog.GetUpcomingAsync(ItalyTime.Today)).FirstOrDefault();
+        }
+
+        sessions = eventInfo is null ? [] : await EventCatalog.GetSessionsAsync(eventInfo.Id);
+    }
+}
