@@ -32,7 +32,7 @@ public sealed record SpeakerImportResult(int Updated, int EmailsChanged, int Ids
 /// file differs from the account's, the account is updated and the change is recorded in
 /// community.SpeakerChangeLog.
 /// </summary>
-public sealed class SpeakerImportService(SqlConnectionFactory connections)
+public sealed class SpeakerImportService(ILogger<SpeakerImportService> logger, SqlConnectionFactory connections)
 {
     private const int MaximumLength = 64;
     private const string Source = "Import Sessionize xlsx";
@@ -108,6 +108,7 @@ public sealed class SpeakerImportService(SqlConnectionFactory connections)
         IReadOnlyList<SpeakerImportRow> rows,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Analyzing a speakers import.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         return await AnalyzeAsync(connection, null, rows, cancellationToken);
     }
@@ -117,6 +118,7 @@ public sealed class SpeakerImportService(SqlConnectionFactory connections)
         string changedBy,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Importing speakers.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 

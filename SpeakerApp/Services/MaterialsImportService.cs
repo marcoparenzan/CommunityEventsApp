@@ -26,7 +26,7 @@ public sealed class MaterialsImportItem
 /// Imports slide and repository links of the sessions of one event. A row identifies the session by
 /// Session Id or Titolo, or through its speaker (Email, or Cognome + Nome). Empty rows and rows without links are skipped.
 /// </summary>
-public sealed class MaterialsImportService(SqlConnectionFactory connections)
+public sealed class MaterialsImportService(ILogger<MaterialsImportService> logger, SqlConnectionFactory connections)
 {
     private static readonly string[] SessionIdHeaders = ["sessionid", "idsessione"];
     private static readonly string[] TitleHeaders = ["title", "titolo", "sessione", "session", "titolosessione"];
@@ -119,6 +119,7 @@ public sealed class MaterialsImportService(SqlConnectionFactory connections)
         int eventId,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Analyzing a materials import.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         return await AnalyzeAsync(connection, null, rows, eventId, cancellationToken);
     }
@@ -129,6 +130,7 @@ public sealed class MaterialsImportService(SqlConnectionFactory connections)
         int eventId,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Importing materials.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var items = await AnalyzeAsync(connection, transaction, rows, eventId, cancellationToken);

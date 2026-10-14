@@ -8,7 +8,7 @@ public sealed record EventTemplateInfo(int AssetId, string FileName, long SizeBy
 public sealed record EventTemplateFile(byte[] Content, string ContentType, string FileName);
 
 /// <summary>The PowerPoint template of an event: stored in MediaAssets, never served publicly, downloaded by the event's speakers.</summary>
-public sealed class EventTemplateService(SqlConnectionFactory connections)
+public sealed class EventTemplateService(ILogger<EventTemplateService> logger, SqlConnectionFactory connections)
 {
     public const int MaximumBytes = 25 * 1024 * 1024;
 
@@ -41,6 +41,7 @@ public sealed class EventTemplateService(SqlConnectionFactory connections)
     /// <summary>Stores (or replaces) the template of the event. Throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
     public async Task SaveAsync(int eventId, string fileName, byte[] content, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Saving the PowerPoint template of event {EventId} ({FileName}, {Bytes} bytes).", eventId, fileName, content.Length);
         fileName = Path.GetFileName(fileName ?? string.Empty);
         var extension = Path.GetExtension(fileName);
         if (!ContentTypes.TryGetValue(extension, out var contentType))
@@ -117,6 +118,7 @@ public sealed class EventTemplateService(SqlConnectionFactory connections)
 
     public async Task<bool> RemoveAsync(int eventId, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Removing the PowerPoint template of event {EventId}.", eventId);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         int? assetId;
@@ -172,7 +174,8 @@ public sealed class EventTemplateService(SqlConnectionFactory connections)
             DELETE FROM community.MediaAssets
             WHERE ID = @id
               AND NOT EXISTS (SELECT 1 FROM community.Sponsors WHERE MediaAssetID = @id)
-              AND NOT EXISTS (SELECT 1 FROM community.Events WHERE SlideTemplateAssetID = @id);
+              AND NOT EXISTS (SELECT 1 FROM community.Events WHERE SlideTemplateAssetID = @id)
+              AND NOT EXISTS (SELECT 1 FROM community.EventSessions WHERE CoverAssetID = @id);
             """, connection, transaction);
         command.Parameters.Add("@id", SqlDbType.Int).Value = assetId;
         await command.ExecuteNonQueryAsync(cancellationToken);

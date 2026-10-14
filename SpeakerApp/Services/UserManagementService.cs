@@ -39,7 +39,7 @@ public sealed class UserDraft
 }
 
 /// <summary>Staff management of the participants registry (community.Users): search, add and edit.</summary>
-public sealed class UserManagementService(SqlConnectionFactory connections, SmtpEmailSender emailSender)
+public sealed class UserManagementService(ILogger<UserManagementService> logger, SqlConnectionFactory connections, SmtpEmailSender emailSender)
 {
     public const int PageSize = 50;
     private const int MaximumLength = 64;
@@ -147,6 +147,7 @@ public sealed class UserManagementService(SqlConnectionFactory connections, Smtp
     /// <summary>Adds a user. Throws <see cref="InvalidOperationException"/> with a user-facing message on invalid input.</summary>
     public async Task<int> CreateAsync(UserDraft draft, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Creating a user.");
         var (firstName, lastName, email) = Validate(draft);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
@@ -175,6 +176,7 @@ public sealed class UserManagementService(SqlConnectionFactory connections, Smtp
     /// <summary>Sends the "how to log in" email to the user. Returns false when the user does not exist.</summary>
     public async Task<bool> SendLoginEmailAsync(int userId, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Sending the login email to user {UserId}.", userId);
         string email;
         string firstName;
         await using (var connection = await connections.OpenAsync(cancellationToken))
@@ -198,6 +200,7 @@ public sealed class UserManagementService(SqlConnectionFactory connections, Smtp
 
     public async Task<bool> UpdateAsync(int userId, UserDraft draft, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Updating user {UserId}.", userId);
         var (firstName, lastName, email) = Validate(draft);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
@@ -281,6 +284,7 @@ public sealed class UserManagementService(SqlConnectionFactory connections, Smtp
     /// <summary>Saves status, attendance and meal preferences of a registration.</summary>
     public async Task<bool> SaveRegistrationAsync(int userId, UserRegistrationEdit edit, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Saving a registration of user {UserId}.", userId);
         if (!Statuses.Contains(edit.Status))
         {
             throw new InvalidOperationException("Stato dell'iscrizione non valido.");
@@ -312,6 +316,7 @@ public sealed class UserManagementService(SqlConnectionFactory connections, Smtp
 
     public async Task AddRegistrationAsync(int userId, int eventId, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Adding user {UserId} to event {EventId}.", userId, eventId);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         await using (var exists = new SqlCommand(
@@ -345,6 +350,7 @@ public sealed class UserManagementService(SqlConnectionFactory connections, Smtp
 
     public async Task<bool> DeleteRegistrationAsync(int userId, int registrationId, CancellationToken cancellationToken = default)
     {
+        logger.LogWarning("Deleting registration {RegistrationId} of user {UserId}.", registrationId, userId);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         await using var command = new SqlCommand("""

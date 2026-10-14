@@ -565,6 +565,26 @@ IF COL_LENGTH(N'community.EventSpeakers', N'AlbergoID') IS NULL
     ALTER TABLE community.EventSpeakers ADD AlbergoID int NULL
         CONSTRAINT FK_EventSpeakers_Alberghi REFERENCES community.Alberghi(ID);
 
+-- Hotel: voce "Altro" (con nota libera), taglia della maglia, link del gruppo WhatsApp speaker, raccolta taglie e copertine.
+INSERT INTO community.Alberghi (Nome, Url)
+SELECT N'Altro', N''
+WHERE NOT EXISTS (SELECT 1 FROM community.Alberghi a WHERE a.Nome = N'Altro');
+
+IF COL_LENGTH(N'community.EventSpeakers', N'AlbergoNote') IS NULL
+    ALTER TABLE community.EventSpeakers ADD AlbergoNote nvarchar(256) NOT NULL
+        CONSTRAINT DF_EventSpeakers_AlbergoNote DEFAULT (N'');
+IF COL_LENGTH(N'community.EventSpeakers', N'TShirtSize') IS NULL
+    ALTER TABLE community.EventSpeakers ADD TShirtSize nvarchar(8) NULL;
+IF COL_LENGTH(N'community.Events', N'SpeakerWhatsAppUrl') IS NULL
+    ALTER TABLE community.Events ADD SpeakerWhatsAppUrl nvarchar(512) NOT NULL
+        CONSTRAINT DF_Events_SpeakerWhatsAppUrl DEFAULT (N'');
+IF COL_LENGTH(N'community.Events', N'CollectsTShirtSizes') IS NULL
+    ALTER TABLE community.Events ADD CollectsTShirtSizes bit NOT NULL
+        CONSTRAINT DF_Events_CollectsTShirtSizes DEFAULT (0);
+IF COL_LENGTH(N'community.EventSessions', N'CoverAssetID') IS NULL
+    ALTER TABLE community.EventSessions ADD CoverAssetID int NULL
+        CONSTRAINT FK_EventSessions_CoverAsset REFERENCES community.MediaAssets(ID);
+
 -- Cancellazione dell'account utente: flag logico (l'utente che ha già partecipato resta in anagrafica, anonimizzato).
 IF COL_LENGTH(N'community.Users', N'IsDeleted') IS NULL
     ALTER TABLE community.Users ADD IsDeleted bit NOT NULL CONSTRAINT DF_Users_IsDeleted DEFAULT (0);
@@ -758,7 +778,12 @@ FROM (VALUES
     (N'colonna EventSessions.SpeakerDescription',     IIF(COL_LENGTH(N'community.EventSessions', N'SpeakerDescription') IS NULL, 0, 1)),
     (N'colonna EventSpeakers.PartecipaCenaSpeaker',   IIF(COL_LENGTH(N'community.EventSpeakers', N'PartecipaCenaSpeaker') IS NULL, 0, 1)),
     (N'colonna EventSpeakers.PartecipantiAggiuntiviCenaSpeaker', IIF(COL_LENGTH(N'community.EventSpeakers', N'PartecipantiAggiuntiviCenaSpeaker') IS NULL, 0, 1)),
-    (N'colonna EventSpeakers.AlbergoID',              IIF(COL_LENGTH(N'community.EventSpeakers', N'AlbergoID') IS NULL, 0, 1))
+    (N'colonna EventSpeakers.AlbergoID',              IIF(COL_LENGTH(N'community.EventSpeakers', N'AlbergoID') IS NULL, 0, 1)),
+    (N'colonna EventSpeakers.AlbergoNote',            IIF(COL_LENGTH(N'community.EventSpeakers', N'AlbergoNote') IS NULL, 0, 1)),
+    (N'colonna EventSpeakers.TShirtSize',             IIF(COL_LENGTH(N'community.EventSpeakers', N'TShirtSize') IS NULL, 0, 1)),
+    (N'colonna Events.SpeakerWhatsAppUrl',            IIF(COL_LENGTH(N'community.Events', N'SpeakerWhatsAppUrl') IS NULL, 0, 1)),
+    (N'colonna Events.CollectsTShirtSizes',           IIF(COL_LENGTH(N'community.Events', N'CollectsTShirtSizes') IS NULL, 0, 1)),
+    (N'colonna EventSessions.CoverAssetID',           IIF(COL_LENGTH(N'community.EventSessions', N'CoverAssetID') IS NULL, 0, 1))
 ) AS check_list(oggetto, presente)
 WHERE presente = 0
 ORDER BY oggetto;

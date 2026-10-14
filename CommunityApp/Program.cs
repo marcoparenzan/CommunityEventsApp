@@ -204,6 +204,7 @@ app.MapPost("/api/auth/verify-pin", async (
     VerifyPinRequest request,
     HttpContext context,
     UserAuthenticationService authentication,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     try
@@ -211,8 +212,11 @@ app.MapPost("/api/auth/verify-pin", async (
         var principal = await authentication.VerifyPinAsync(request.Email, request.Pin, cancellationToken);
         if (principal is null)
         {
+            logger.LogWarning("Sign-in failed from {RemoteIp}.", context.Connection.RemoteIpAddress);
             return Results.Unauthorized();
         }
+
+        logger.LogInformation("Sign-in from {RemoteIp}, installed PWA={Installed}.", context.Connection.RemoteIpAddress, request.Installed);
 
         await context.SignInAsync("EventsCookie", principal, new AuthenticationProperties
         {
@@ -261,6 +265,7 @@ app.MapPost("/api/events/{eventId:int}/register", async (
     ClaimsPrincipal user,
     EventCatalogService eventCatalog,
     EventCheckInService checkIn,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     var email = user.FindFirstValue(ClaimTypes.Email);
@@ -271,6 +276,7 @@ app.MapPost("/api/events/{eventId:int}/register", async (
 
     if ((await eventCatalog.GetAllAsync(cancellationToken)).FirstOrDefault(item => item.Id == eventId)?.IsLocked == true)
     {
+        logger.LogWarning("Registration to event {EventId} refused: the event is locked.", eventId);
         return Results.Conflict(new EventCheckInResponse(false, "Le modifiche alle iscrizioni di questo evento sono state bloccate dall'organizzazione."));
     }
 
@@ -282,6 +288,7 @@ app.MapPost("/api/events/{eventId:int}/register", async (
             request.IsEatingPizza,
             request.LactoseIntolerant,
             cancellationToken: cancellationToken);
+        logger.LogInformation("Registration request for event {EventId}: ok={Ok}.", eventId, result.Ok);
         return result.Ok ? Results.Ok(result) : Results.Conflict(result);
     }
     catch (ArgumentException exception)
@@ -303,6 +310,7 @@ app.MapPost("/api/checkin/events/{eventId:int}/self", async (
     SelfCheckInRequest request,
     ClaimsPrincipal user,
     EventCheckInService checkIn,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     if (!int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
@@ -311,6 +319,15 @@ app.MapPost("/api/checkin/events/{eventId:int}/self", async (
     }
 
     var checkedIn = await checkIn.CheckInAuthenticatedUserAsync(eventId, userId, request.Signature, cancellationToken);
+    if (checkedIn)
+    {
+        logger.LogInformation("Self check-in completed: user {UserId}, event {EventId}.", userId, eventId);
+    }
+    else
+    {
+        logger.LogWarning("Self check-in refused: user {UserId}, event {EventId} (old QR signature, unconfirmed registration or check-in closed).", userId, eventId);
+    }
+
     return checkedIn
         ? Results.Ok(new EventCheckInResponse(true, "Check-in completato. Benvenuto all’evento!"))
         : Results.Conflict(new EventCheckInResponse(

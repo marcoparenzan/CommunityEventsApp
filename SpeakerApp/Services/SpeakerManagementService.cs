@@ -4,7 +4,7 @@ using EventsCommon.Models;
 
 namespace SpeakerApp.Services;
 
-public sealed class SpeakerManagementService(SqlConnectionFactory connections)
+public sealed class SpeakerManagementService(ILogger<SpeakerManagementService> logger, SqlConnectionFactory connections)
 {
     public async Task<IReadOnlyList<SpeakerPermissionResponse>> GetAllAsync(
         CancellationToken cancellationToken = default)
@@ -47,6 +47,7 @@ public sealed class SpeakerManagementService(SqlConnectionFactory connections)
         bool canCheckIn,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Changing the check-in permission of a speaker.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             UPDATE community.Speakers
@@ -67,6 +68,7 @@ public sealed class SpeakerManagementService(SqlConnectionFactory connections)
         UpdateSpeakerRequest request,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Updating a speaker.");
         var firstName = (request.FirstName ?? string.Empty).Trim();
         var lastName = (request.LastName ?? string.Empty).Trim();
         var email = (request.Email ?? string.Empty).Trim();

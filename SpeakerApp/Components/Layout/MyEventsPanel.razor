@@ -1,5 +1,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
 @inject SpeakerSelfService SpeakerSelf
+@inject SessionCoverService Covers
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject CommunityLinks Community
 @inject ILogger<MyEventsPanel> Logger
@@ -44,8 +46,16 @@ else
                 </section>
             }
 
+            @if (!string.IsNullOrWhiteSpace(item.WhatsAppUrl))
+            {
+                <section class="my-event-block">
+                    <h3>Gruppo WhatsApp speaker</h3>
+                    <p><a class="event-button" href="@item.WhatsAppUrl" target="_blank" rel="noopener noreferrer">Entra nel gruppo WhatsApp ↗</a></p>
+                </section>
+            }
+
             <section class="my-event-block">
-                <h3>Cena speaker e albergo</h3>
+                <h3>Cena speaker, albergo@(item.CollectsTShirts ? " e maglia" : string.Empty)</h3>
                 <label class="account-consent">
                     <input type="checkbox" @bind="eventDrafts[item.EventId].AttendsDinner" />
                     Partecipo alla cena speaker
@@ -65,11 +75,33 @@ else
                         }
                     </select>
                 </label>
-                @if (hotels.FirstOrDefault(h => h.Id == eventDrafts[item.EventId].HotelId) is { Url.Length: > 0 } chosen)
+                <p class="account-help">L’albergo scelto è solo un’indicazione per l’organizzazione: <strong>non vale come prenotazione</strong>, che resta a tuo carico.</p>
+                @if (hotels.FirstOrDefault(h => h.Id == eventDrafts[item.EventId].HotelId) is { } chosen)
                 {
-                    <p class="account-help"><a href="@chosen.Url" target="_blank" rel="noopener noreferrer">Sito di @chosen.Name ↗</a></p>
+                    @if (chosen.Url.Length > 0)
+                    {
+                        <p class="account-help"><a href="@chosen.Url" target="_blank" rel="noopener noreferrer">Sito di @chosen.Name ↗</a></p>
+                    }
+                    @if (chosen.Name.Equals(SpeakerSelfService.OtherHotelName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <label>Se vuoi specifica
+                            <input @bind="eventDrafts[item.EventId].HotelNote" maxlength="@SpeakerSelfService.MaximumHotelNoteLength" placeholder="Nome dell’albergo o altra indicazione" />
+                        </label>
+                    }
                 }
-                <button type="button" class="event-button" @onclick="() => SaveEventAsync(item)" disabled="@busy">Salva cena e albergo</button>
+                @if (item.CollectsTShirts)
+                {
+                    <label>Taglia della maglia (taglie europee)
+                        <select @bind="eventDrafts[item.EventId].TShirtSize">
+                            <option value="">Non indicata</option>
+                            @foreach (var size in SpeakerSelfService.TShirtSizes)
+                            {
+                                <option value="@size">@size</option>
+                            }
+                        </select>
+                    </label>
+                }
+                <button type="button" class="event-button" @onclick="() => SaveEventAsync(item)" disabled="@busy">Salva</button>
             </section>
 
             <section class="my-event-block">
@@ -96,6 +128,30 @@ else
                             <input type="url" @bind="draft.RepositoryUrl" maxlength="512" placeholder="https://github.com/…" />
                         </label>
                         <button type="button" class="event-button" @onclick="() => SaveSessionAsync(item, session)" disabled="@busy">Salva sessione</button>
+
+                        <div class="my-session-cover">
+                            <h5>Copertina</h5>
+                            @if (session.HasCover)
+                            {
+                                <p>
+                                    <img src="/api/speaker/events/@item.EventId/sessions/@Uri.EscapeDataString(session.SessionId)/cover?v=@coverVersion" alt="Copertina di @session.Title" style="max-width:100%;width:420px;height:auto" />
+                                </p>
+                                <p>
+                                    <a class="event-button" href="/api/speaker/events/@item.EventId/sessions/@Uri.EscapeDataString(session.SessionId)/cover" download>Scarica</a>
+                                    <button type="button" @onclick="() => RemoveCoverAsync(item, session)" disabled="@busy">Rimuovi</button>
+                                </p>
+                            }
+                            else
+                            {
+                                <p class="account-help">Nessuna copertina collegata a questa sessione.</p>
+                            }
+                            <p>
+                                <button type="button" class="event-button" @onclick="() => GenerateCoverAsync(item, session)" disabled="@busy">@(session.HasCover ? "Rigenera e sostituisci" : "Genera e allega")</button>
+                            </p>
+                            <label>Oppure allega un’immagine (PNG, JPEG o WebP, massimo 5 MB)
+                                <InputFile OnChange="args => UploadCoverAsync(item, session, args)" accept="image/png,image/jpeg,image/webp" disabled="@busy" />
+                            </label>
+                        </div>
                     </article>
                 }
             </section>
@@ -109,6 +165,8 @@ else
         public bool AttendsDinner { get; set; }
         public int Guests { get; set; }
         public int? HotelId { get; set; }
+        public string HotelNote { get; set; } = string.Empty;
+        public string TShirtSize { get; set; } = string.Empty;
     }
 
     private sealed class SessionDraft
@@ -123,6 +181,8 @@ else
     private readonly Dictionary<int, EventDraft> eventDrafts = [];
     private readonly Dictionary<(int, string), SessionDraft> sessionDrafts = [];
     private int speakerId;
+    private bool isSuperUser;
+    private int coverVersion;
     private bool loadFailed;
     private bool busy;
     private bool isError;
@@ -137,6 +197,7 @@ else
             return;
         }
 
+        isSuperUser = state.User.HasClaim("is_super_user", "true");
         await LoadAsync();
     }
 
@@ -150,7 +211,11 @@ else
             sessionDrafts.Clear();
             foreach (var item in events)
             {
-                eventDrafts[item.EventId] = new EventDraft { AttendsDinner = item.AttendsDinner, Guests = item.DinnerGuests, HotelId = item.HotelId };
+                eventDrafts[item.EventId] = new EventDraft
+                {
+                    AttendsDinner = item.AttendsDinner, Guests = item.DinnerGuests, HotelId = item.HotelId,
+                    HotelNote = item.HotelNote, TShirtSize = item.TShirtSize ?? string.Empty
+                };
                 foreach (var session in item.Sessions)
                 {
                     sessionDrafts[(item.EventId, session.SessionId)] = new SessionDraft
@@ -203,7 +268,8 @@ else
     private Task SaveEventAsync(MyEventItem item) => RunAsync(async () =>
     {
         var draft = eventDrafts[item.EventId];
-        var saved = await SpeakerSelf.SaveEventInfoAsync(speakerId, item.EventId, draft.AttendsDinner, draft.Guests, draft.HotelId);
+        var saved = await SpeakerSelf.SaveEventInfoAsync(
+            speakerId, item.EventId, draft.AttendsDinner, draft.Guests, draft.HotelId, draft.HotelNote, draft.TShirtSize);
         if (!saved)
         {
             isError = true;
@@ -211,7 +277,7 @@ else
         }
 
         await LoadAsync();
-        return $"Cena e albergo di {item.Name} salvati.";
+        return $"Dati di {item.Name} salvati.";
     });
 
     private Task SaveSessionAsync(MyEventItem item, MySessionItem session) => RunAsync(async () =>
@@ -227,5 +293,40 @@ else
 
         await LoadAsync();
         return $"Sessione “{session.Title}” salvata.";
+    });
+
+    private Task GenerateCoverAsync(MyEventItem item, MySessionItem session) => RunAsync(async () =>
+    {
+        await Covers.GenerateAsync(speakerId, isSuperUser, item.EventId, session.SessionId);
+        coverVersion++;
+        await LoadAsync();
+        return $"Copertina di “{session.Title}” generata e allegata.";
+    });
+
+    private Task UploadCoverAsync(MyEventItem item, MySessionItem session, InputFileChangeEventArgs args) => RunAsync(async () =>
+    {
+        try
+        {
+            await using var upload = args.File.OpenReadStream(maxAllowedSize: SessionCoverService.MaximumUploadBytes);
+            using var buffer = new MemoryStream();
+            await upload.CopyToAsync(buffer);
+            await Covers.UploadAsync(speakerId, isSuperUser, item.EventId, session.SessionId, args.File.Name, buffer.ToArray());
+        }
+        catch (IOException)
+        {
+            throw new InvalidOperationException("L’immagine deve pesare al massimo 5 MB.");
+        }
+
+        coverVersion++;
+        await LoadAsync();
+        return $"Copertina di “{session.Title}” caricata.";
+    });
+
+    private Task RemoveCoverAsync(MyEventItem item, MySessionItem session) => RunAsync(async () =>
+    {
+        await Covers.RemoveAsync(speakerId, isSuperUser, item.EventId, session.SessionId);
+        coverVersion++;
+        await LoadAsync();
+        return "Copertina rimossa.";
     });
 }

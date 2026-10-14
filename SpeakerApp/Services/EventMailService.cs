@@ -4,7 +4,7 @@ using EventsCommon.Models;
 
 namespace SpeakerApp.Services;
 
-public sealed class EventMailService(SqlConnectionFactory connections, SmtpEmailSender emailSender)
+public sealed class EventMailService(ILogger<EventMailService> logger, SqlConnectionFactory connections, SmtpEmailSender emailSender)
 {
     public const int MaxRecipients = 500;
 
@@ -81,6 +81,7 @@ public sealed class EventMailService(SqlConnectionFactory connections, SmtpEmail
         string body,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Sending a bulk email to an event audience.");
         subject = (subject ?? string.Empty).Trim();
         body = (body ?? string.Empty).Trim();
         if (subject.Length is 0 or > 200)

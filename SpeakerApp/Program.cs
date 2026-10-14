@@ -131,6 +131,7 @@ builder.Services.AddScoped<UserManagementService>();
 builder.Services.AddScoped<SpeakerSelfService>();
 builder.Services.AddScoped<SponsorAdminService>();
 builder.Services.AddScoped<EventTemplateService>();
+builder.Services.AddScoped<SessionCoverService>();
 builder.Services.AddScoped<EventMailService>();
 builder.Services.AddHttpClient("Sessionize", client =>
 {
@@ -176,6 +177,23 @@ app.MapGet("/api/speaker/events/{eventId:int}/slide-template", async (
     return file is null
         ? Results.NotFound()
         : Results.File(file.Content, file.ContentType, file.FileName);
+}).RequireAuthorization("Speaker");
+
+// Copertina di una sessione: solo gli speaker di quella sessione e i superutenti (mai pubblica).
+app.MapGet("/api/speaker/events/{eventId:int}/sessions/{sessionId}/cover", async (
+    int eventId,
+    string sessionId,
+    ClaimsPrincipal user,
+    SessionCoverService covers,
+    CancellationToken cancellationToken) =>
+{
+    if (!int.TryParse(user.FindFirstValue("speaker_id"), out var speakerId))
+    {
+        return Results.Unauthorized();
+    }
+
+    var file = await covers.GetAsync(speakerId, user.HasClaim("is_super_user", "true"), eventId, sessionId, cancellationToken);
+    return file is null ? Results.NotFound() : Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Speaker");
 
 app.MapGet("/api/admin/events/{eventId:int}/slide-template", async (

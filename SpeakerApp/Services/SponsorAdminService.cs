@@ -24,7 +24,7 @@ public sealed class SponsorDraft
 public sealed record SponsorLogo(byte[] Content, string ContentType, string FileName);
 
 /// <summary>Sponsors are shared rows linked to events: "per year" means linked to the events of that year.</summary>
-public sealed class SponsorAdminService(SqlConnectionFactory connections)
+public sealed class SponsorAdminService(ILogger<SponsorAdminService> logger, SqlConnectionFactory connections)
 {
     public const int MaximumLogoBytes = 1024 * 1024;
 
@@ -113,6 +113,7 @@ public sealed class SponsorAdminService(SqlConnectionFactory connections)
     public async Task SaveAsync(
         SponsorDraft draft, SponsorLogo? logo, IReadOnlyCollection<int> scopeEventIds, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Saving a sponsor.");
         var name = (draft.Name ?? string.Empty).Trim();
         var url = (draft.Url ?? string.Empty).Trim();
         var tier = (draft.Tier ?? string.Empty).Trim();
@@ -216,6 +217,7 @@ public sealed class SponsorAdminService(SqlConnectionFactory connections)
     /// <summary>Unlinks the sponsor from the given events (it stays in the registry and in other events).</summary>
     public async Task RemoveFromEventsAsync(int sponsorId, IReadOnlyCollection<int> eventIds, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Removing sponsor {SponsorId} from {Count} event(s).", sponsorId, eventIds.Count);
         await using var connection = await connections.OpenAsync(cancellationToken);
         foreach (var eventId in eventIds)
         {
@@ -230,6 +232,7 @@ public sealed class SponsorAdminService(SqlConnectionFactory connections)
     /// <summary>Deletes the sponsor everywhere (all links and its logo).</summary>
     public async Task<bool> DeleteAsync(int sponsorId, CancellationToken cancellationToken = default)
     {
+        logger.LogWarning("Deleting sponsor {SponsorId}.", sponsorId);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         int? assetId;
@@ -270,6 +273,7 @@ public sealed class SponsorAdminService(SqlConnectionFactory connections)
     public async Task<int> CopyAsync(
         IReadOnlyCollection<int> sourceEventIds, IReadOnlyCollection<int> targetEventIds, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Copying the sponsors between events.");
         if (sourceEventIds.Count == 0 || targetEventIds.Count == 0)
         {
             throw new InvalidOperationException("Scegli gli eventi di origine e di destinazione.");

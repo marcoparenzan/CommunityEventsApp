@@ -37,7 +37,7 @@ public sealed record UserImportOptions(bool SetNotifications = false, bool SetPi
 /// Imports last name, first name and email from an xlsx/csv file into community.Users (one time load)
 /// or, for a single event, also registers those people to the event (adding the missing users).
 /// </summary>
-public sealed class UserImportService(SqlConnectionFactory connections)
+public sealed class UserImportService(ILogger<UserImportService> logger, SqlConnectionFactory connections)
 {
     private const int MaximumLength = 64;
 
@@ -256,6 +256,7 @@ public sealed class UserImportService(SqlConnectionFactory connections)
         UserImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Analyzing a users import.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         return await AnalyzeAsync(connection, null, rows, eventId, options ?? new UserImportOptions(), cancellationToken);
     }
@@ -266,6 +267,7 @@ public sealed class UserImportService(SqlConnectionFactory connections)
         UserImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Importing users.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var items = await AnalyzeAsync(connection, transaction, rows, eventId, options ?? new UserImportOptions(), cancellationToken);

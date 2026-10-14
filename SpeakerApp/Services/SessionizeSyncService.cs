@@ -5,13 +5,14 @@ using EventsCommon.Models;
 
 namespace SpeakerApp.Services;
 
-public sealed class SessionizeSyncService(
+public sealed class SessionizeSyncService(ILogger<SessionizeSyncService> logger, 
     IHttpClientFactory httpClientFactory,
     SqlConnectionFactory connections,
     EventCatalogService eventCatalog)
 {
     public async Task<int> SyncAsync(int eventId, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Starting the Sessionize synchronization of event {EventId}.", eventId);
         var eventInfo = (await eventCatalog.GetAllAsync(cancellationToken))
             .SingleOrDefault(item => item.Id == eventId);
         if (eventInfo is null || string.IsNullOrWhiteSpace(eventInfo.SessionizeJsonUri))

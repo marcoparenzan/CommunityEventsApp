@@ -8,7 +8,7 @@ using EventsCommon.Models;
 
 namespace SpeakerApp.Services;
 
-public sealed class SpeakerAuthenticationService(
+public sealed class SpeakerAuthenticationService(ILogger<SpeakerAuthenticationService> logger, 
     SqlConnectionFactory connections,
     SmtpEmailSender emailSender,
     IConfiguration configuration) : ISpeakerAuthenticationService
@@ -17,6 +17,7 @@ public sealed class SpeakerAuthenticationService(
 
     public async Task RequestPinAsync(string? email, string? loginBaseUrl = null, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("A speaker login PIN was requested.");
         var normalizedEmail = NormalizeEmail(email);
         var pin = CreatePin();
         var pinHash = HashPin(pin);
@@ -76,9 +77,11 @@ public sealed class SpeakerAuthenticationService(
         string? pin,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("A speaker login PIN is being verified.");
         var normalizedEmail = NormalizeEmail(email);
         if (string.IsNullOrWhiteSpace(pin) || pin.Length != 16 || pin.Any(character => character is < '0' or > '9'))
         {
+            logger.LogWarning("Speaker login refused: the PIN has an invalid format.");
             return null;
         }
 
@@ -133,10 +136,14 @@ public sealed class SpeakerAuthenticationService(
             }
 
             await transaction.CommitAsync(cancellationToken);
+            logger.LogWarning(
+                "Speaker login refused: wrong PIN, no PIN requested or too many attempts (speaker {SpeakerId}, challenge {ChallengeId}, attempts {Attempts}).",
+                speakerId, challengeId, attempts);
             return null;
         }
 
         await transaction.CommitAsync(cancellationToken);
+        logger.LogInformation("Speaker login completed for speaker {SpeakerId}.", speakerId);
         var claims = new[]
         {
             new Claim("account_type", "speaker"),
@@ -266,6 +273,7 @@ public sealed class SpeakerAuthenticationService(
         UpdateSpeakerSessionLinksRequest request,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Updating the links of a session.");
         if (string.IsNullOrWhiteSpace(request.SessionizeSessionId) ||
             request.SessionizeSessionId.Length > 80)
         {

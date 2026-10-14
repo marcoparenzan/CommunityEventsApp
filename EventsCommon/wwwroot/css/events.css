@@ -285,6 +285,11 @@
 .pizza-calculator .checkin-attendees-heading { align-items: center; }
 .pizza-calculator .checkin-attendees-heading h2 { margin: 0; }
 .pizza-calculator .checkin-attendees-heading button { border: 1px solid var(--event-green); padding: 8px 12px; background: #fff; color: var(--event-green); font: inherit; font-weight: 700; cursor: pointer; }
+.pizza-event-numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0 0; }
+.pizza-event-numbers div { padding: 8px 10px; border: 1px solid #c9d6d0; }
+.pizza-event-numbers dt { font-size: .85rem; }
+.pizza-event-numbers dd { margin: 0; font-size: 1.25rem; font-weight: 700; }
+.pizza-use-numbers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .pizza-calculator-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
 .pizza-calculator-fields label { display: grid; gap: 6px; font-weight: 700; }
 .pizza-calculator-fields input { min-width: 0; min-height: 46px; padding: 8px 10px; border: 1px solid #9eada7; font: inherit; }

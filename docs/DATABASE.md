@@ -26,14 +26,14 @@ Prima di eseguirlo su un database con dati reali fare un backup.
 | `UserLogs` | Log eventi utente (LogTypeId, es. 1001 = consenso) |
 | `EmailPinChallenges` | PIN utenti (hash, tentativi, consumo) |
 | `EventRegistrationConfirmations` | Token di conferma iscrizione (hash, scadenza) |
-| `Events` | ID, Year, Name, Description (rich text), EventDate, Moniker, SessionizeMoniker/JsonUri, IsCurrent, IsPublished, CallForPapers*, CheckInToken, IsCancelled, IsLocked, SlideTemplateAssetID |
-| `EventSessions` | Sessioni: titolo, descrizione, orari, Room, IsActive, LastSyncedAt, VideoUrl, PresentationUrl, RepositoryUrl, SpeakerDescription |
+| `Events` | ID, Year, Name, Description (rich text), EventDate, Moniker, SessionizeMoniker/JsonUri, IsCurrent, IsPublished, CallForPapers*, CheckInToken, IsCancelled, IsLocked, SlideTemplateAssetID, SpeakerWhatsAppUrl, CollectsTShirtSizes |
+| `EventSessions` | Sessioni: titolo, descrizione, orari, Room, IsActive, LastSyncedAt, VideoUrl, PresentationUrl, RepositoryUrl, SpeakerDescription, CoverAssetID (copertina in `MediaAssets`) |
 | `EventSessionSpeakers` | Legame sessione ↔ speaker dell'evento |
-| `EventSpeakers` | Speaker per evento (dati Sessionize, cena, accompagnatori, AlbergoID, SpeakerID) |
+| `EventSpeakers` | Speaker per evento (dati Sessionize, cena, accompagnatori, AlbergoID, AlbergoNote, TShirtSize, SpeakerID) |
 | `Speakers` | Anagrafica speaker: EMail, SessionizeName, SessionizeSpeakerID, IsSuperUser, CanCheckIn, Cellulare |
 | `SpeakerEmailPinChallenges` | PIN speaker |
 | `SpeakerChangeLog` | Storico modifiche speaker |
-| `Alberghi` | Elenco alberghi (Nome unico, Url) |
+| `Alberghi` | Elenco alberghi indicativi (Nome unico, Url); include la voce "Altro" |
 | `Sponsors` | SponsorKey (unica), Name, Url, Tier, MediaAssetID |
 | `EventSponsors` | Sponsor per evento con SortOrder |
 | `MediaAssets` | File binari (loghi, template PowerPoint) |

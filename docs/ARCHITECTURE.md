@@ -35,6 +35,12 @@ SpeakerApp: `/api/speaker-auth/*`, `/api/speaker/*` (account, sessions, attendee
 ## Servizi di SpeakerApp
 EventMailService, EventReportService, EventTemplateService, MaterialsImportService, SessionizeSyncService, SpeakerAuthenticationService, SpeakerImportService, SpeakerManagementService, SpeakerSelfService, SpeakerSessionCheck, SponsorAdminService, UserImportService, UserManagementService, XlsxExporter, CommunityLinks, DatabaseResetService.
 
+## Copertine delle sessioni
+`SessionCoverService` (SpeakerApp) disegna la copertina con **SkiaSharp** (le foto degli speaker sono scaricate solo da host HTTPS `sessionize.com`, con timeout e limite di dimensione), la salva in `MediaAssets` e la collega con `EventSessions.CoverAssetID`; l'immagine caricata a mano segue lo stesso percorso (controllo della firma del file). Download: `GET /api/speaker/events/{id}/sessions/{sessionId}/cover` (speaker della sessione o SuperUser). Il font è Segoe UI se presente sul server, altrimenti quello di sistema.
+
+## Logging
+Tutti i servizi usano `ILogger`: Information per le operazioni (salvataggi, import, sincronizzazioni, invii mail, login riusciti), Warning per i rifiuti (PIN errato, check-in rifiutato, cancellazioni, reset) ed Error con eccezione per i guasti. Gli indirizzi email non vengono scritti nei log.
+
 ## Orari
 `ItalyTime` (EventsCommon) legge `Application:TimeZone` (default Europe/Rome) all'avvio; espone `Now`, `Today`, `NowOffset`, `ToItaly()`. All'avvio l'app scrive il fuso in `community.Settings`; le funzioni SQL `community.LocalNow()` (datetimeoffset) e `community.LocalNowDateTime()` (datetime) lo leggono e sono usate nei DEFAULT. Risultato: **tutte le date nel database sono ora locale** (i `datetimeoffset` con l'offset locale; `RegistrationDate` è ora locale senza fuso). Su Azure il server gira in UTC, quindi non si deve mai usare l'ora di sistema.
 

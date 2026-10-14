@@ -12,6 +12,11 @@ public sealed class EventDefinition
 
     /// <summary>When true participants cannot register, cancel or change their preferences.</summary>
     public bool IsLocked { get; set; }
+    /// <summary>Invite link of the speakers' WhatsApp group for the event (empty when there is none).</summary>
+    public string SpeakerWhatsAppUrl { get; set; } = string.Empty;
+
+    /// <summary>When true speakers are asked for their T-shirt size.</summary>
+    public bool CollectsTShirtSizes { get; set; }
     public string Name { get; set; } = string.Empty;
     public string EventDate { get; set; } = string.Empty;
     public string CallForPapersOpenAt { get; set; } = string.Empty;

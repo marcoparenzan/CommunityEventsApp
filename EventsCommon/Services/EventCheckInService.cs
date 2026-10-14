@@ -265,6 +265,30 @@ public sealed class EventCheckInService(
         return attendees;
     }
 
+    /// <summary>The headline numbers of an event, shown in the pizza calculator.</summary>
+    public async Task<EventNumbers> GetEventNumbersAsync(int eventId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connections.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand("""
+            SELECT
+                (SELECT COUNT(*) FROM community.UserEventRegistration WHERE EventID = @eventId AND Status <> N'Cancelled'),
+                (SELECT COUNT(*) FROM community.UserEventRegistration WHERE EventID = @eventId AND Status = N'Registered'),
+                (SELECT COUNT(*) FROM community.UserEventRegistration WHERE EventID = @eventId AND Status = N'AwaitingConfirmation'),
+                (SELECT COUNT(*) FROM community.UserEventRegistration WHERE EventID = @eventId AND Status = N'Registered' AND CheckedInAt IS NOT NULL),
+                (SELECT COUNT(*) FROM community.UserEventRegistration WHERE EventID = @eventId AND Status <> N'Cancelled' AND IsEatingPizza = 1),
+                (SELECT COUNT(*) FROM community.UserEventRegistration WHERE EventID = @eventId AND Status <> N'Cancelled' AND LactoseIntolerant = 1),
+                (SELECT COUNT(DISTINCT SessionizeSpeakerID) FROM community.EventSpeakers WHERE EventID = @eventId),
+                (SELECT COUNT(*) FROM community.EventSpeakers WHERE EventID = @eventId AND PartecipaCenaSpeaker = 1),
+                (SELECT ISNULL(SUM(PartecipantiAggiuntiviCenaSpeaker), 0) FROM community.EventSpeakers WHERE EventID = @eventId AND PartecipaCenaSpeaker = 1);
+            """, connection);
+        command.Parameters.Add("@eventId", SqlDbType.Int).Value = eventId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        return new EventNumbers(
+            reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetInt32(4),
+            reader.GetInt32(5), reader.GetInt32(6), reader.GetInt32(7), reader.GetInt32(8));
+    }
+
     public async Task<int> GetCheckedInCountAsync(
         int eventId,
         CancellationToken cancellationToken = default)

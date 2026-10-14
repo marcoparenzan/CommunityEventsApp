@@ -36,13 +36,16 @@ Barra fissa: Il mio profilo, I tuoi eventi, Le tue sessioni, Check-in evento e, 
 
 - `/` (profilo) – scheda pubblica dello speaker con modifica dei propri dati (anche cellulare, cena, albergo).
 - `/my-events` – eventi a cui lo speaker partecipa; per ciascuno può modificare **le proprie sessioni** (descrizione, link slide `PresentationUrl`, repository `RepositoryUrl`, video `VideoUrl`) e scaricare il **template PowerPoint** dell'evento.
+- **Cena, albergo e maglia** (per evento): partecipazione alla cena e accompagnatori; albergo scelto da elenco. L'albergo è **solo un'indicazione per l'organizzazione e non vale come prenotazione** (che resta a carico dello speaker). La voce **Altro** abilita il campo libero "Se vuoi specifica". Se l'evento raccoglie le taglie, lo speaker indica la **taglia europea** (XS, S, M, L, XL, XXL, 3XL, N/A).
+- **Gruppo WhatsApp speaker**: se l'evento ha il link, compare un pulsante per entrare nel gruppo.
+- **Copertine delle sessioni** (1280x720, stile 1nn0va: data ed evento in alto a sinistra, logo, titolo, foto tonda e nome degli speaker, barra blu con logo e sponsor): su ogni sessione il pulsante **Genera e allega** crea l'immagine con SkiaSharp e la collega alla sessione; in alternativa si **allega a mano** un'immagine PNG/JPEG/WebP (max 5 MB). Si può scaricare, rigenerare/sostituire o rimuovere. Le copertine non sono pubbliche: le vedono gli speaker della sessione e i SuperUser.
 - `/my-sessions` – elenco delle sue sessioni.
 - Le modifiche ai dati dello speaker sono tracciate in `SpeakerChangeLog` (campo, vecchio/nuovo valore, origine, autore).
 
 ## 5. Amministrazione (solo SuperUser)
 
 ### Eventi (`/events`)
-Schede per anno. Per evento: nome, anno, moniker, data, **descrizione rich text** (Quill, sanificata), moniker/JSON Sessionize, call for papers (apertura, chiusura, URL), pubblicato, **corrente** (uno solo), annullato, **bloccato**. Azioni con conferma: sincronizza da Sessionize, elimina, pubblica, imposta corrente, blocca/sblocca. Template PowerPoint per evento (carica/sostituisci/scarica) e QR di check-in (sezione 9). I campi tagline, sede, immagine hero, URL/etichetta registrazione esterna non esistono più.
+Schede per anno. Per evento: nome, anno, moniker, data, **descrizione rich text** (Quill, sanificata), moniker/JSON Sessionize, call for papers (apertura, chiusura, URL), pubblicato, **corrente** (uno solo), annullato, **bloccato**. Azioni con conferma: sincronizza da Sessionize, elimina, pubblica, imposta corrente, blocca/sblocca. Campi **Link gruppo WhatsApp speaker** e **Raccogli la taglia della maglia degli speaker** (predefinito: no). Template PowerPoint per evento (carica/sostituisci/scarica) e QR di check-in (sezione 9). I campi tagline, sede, immagine hero, URL/etichetta registrazione esterna non esistono più.
 
 ### Speaker (`/speakers`)
 Tab per iniziale del cognome, ordinamento per ultima partecipazione, finestra di modifica: nome, cognome, email, nome Sessionize, ID Sessionize, cellulare, ruoli **SuperUser** e **CanCheckIn**. Per evento: cena speaker, accompagnatori, **albergo** (tabella `Alberghi`).

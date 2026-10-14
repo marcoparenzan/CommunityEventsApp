@@ -12,7 +12,7 @@ public sealed record AccountProfile(string FirstName, string LastName, string Em
 
 public enum AccountDeletionOutcome { NotFound, Deleted, Anonymized }
 
-public sealed class UserAuthenticationService(
+public sealed class UserAuthenticationService(ILogger<UserAuthenticationService> logger, 
     SqlConnectionFactory connections,
     SmtpEmailSender emailSender,
     IConfiguration configuration)
@@ -30,6 +30,7 @@ public sealed class UserAuthenticationService(
         string? loginBaseUrl = null,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("A login PIN was requested.");
         var normalizedEmail = NormalizeEmail(email);
         if (string.IsNullOrWhiteSpace(firstName) || firstName.Trim().Length > 64 ||
             string.IsNullOrWhiteSpace(lastName) || lastName.Trim().Length > 64)
@@ -99,9 +100,11 @@ public sealed class UserAuthenticationService(
         string? pin,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("A login PIN is being verified.");
         var normalizedEmail = NormalizeEmail(email);
         if (string.IsNullOrWhiteSpace(pin) || pin.Length != 16 || pin.Any(character => character is < '0' or > '9'))
         {
+            logger.LogWarning("Login refused: the PIN has an invalid format.");
             return null;
         }
 
@@ -152,6 +155,9 @@ public sealed class UserAuthenticationService(
             }
 
             await transaction.CommitAsync(cancellationToken);
+            logger.LogWarning(
+                "Login refused: wrong PIN, no PIN requested or too many attempts (user {UserId}, challenge {ChallengeId}, attempts {Attempts}).",
+                userId, challengeId, attempts);
             return null;
         }
 
@@ -221,6 +227,7 @@ public sealed class UserAuthenticationService(
         }
 
         await transaction.CommitAsync(cancellationToken);
+        logger.LogInformation("Login completed for user {UserId} (superuser={SuperUser}, checkin={CanCheckIn}).", userId, isSuperUser, canCheckIn);
         var claims = new[]
         {
             new Claim("account_type", "participant"),
@@ -260,6 +267,7 @@ public sealed class UserAuthenticationService(
     /// <summary>Turns the event communications on or off for the user and records the consent change.</summary>
     public async Task<bool> SetEventNotificationsAsync(int userId, bool allow, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("User {UserId} sets event notifications to {Allow}.", userId, allow);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         bool previous;
@@ -301,6 +309,7 @@ public sealed class UserAuthenticationService(
     /// </summary>
     public async Task<AccountDeletionOutcome> DeleteAccountAsync(int userId, CancellationToken cancellationToken = default)
     {
+        logger.LogWarning("User {UserId} requested the deletion of their account.", userId);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
@@ -372,6 +381,7 @@ public sealed class UserAuthenticationService(
         bool lactoseIntolerant,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Updating the event preferences of a registration.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             UPDATE registration
@@ -434,6 +444,7 @@ public sealed class UserAuthenticationService(
         int eventId,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Cancelling an event registration.");
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             UPDATE registration

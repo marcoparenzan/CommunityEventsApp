@@ -4,7 +4,7 @@ using EventsCommon.Models;
 
 namespace EventsCommon.Services;
 
-public sealed class EventCatalogService(SqlConnectionFactory connections)
+public sealed class EventCatalogService(ILogger<EventCatalogService> logger, SqlConnectionFactory connections)
 {
     public async Task<IReadOnlyList<EventDefinition>> GetAllAsync(CancellationToken cancellationToken = default)
     {
@@ -13,7 +13,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
             SELECT ID, Year, Moniker, IsCurrent, IsPublished, Name,
                    EventDate, CallForPapersOpenAt, CallForPapersCloseAt, CallForPapersUrl,
                    SessionizeMoniker, Description, SessionizeJsonUri, CheckInToken,
-                   IsCancelled, IsLocked
+                   IsCancelled, IsLocked, SpeakerWhatsAppUrl, CollectsTShirtSizes
             FROM community.Events
             ORDER BY EventDate, Name;
             """, connection);
@@ -34,7 +34,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
             SELECT ID, Year, Moniker, IsCurrent, IsPublished, Name,
                    EventDate, CallForPapersOpenAt, CallForPapersCloseAt, CallForPapersUrl,
                    SessionizeMoniker, Description, SessionizeJsonUri, CheckInToken,
-                   IsCancelled, IsLocked
+                   IsCancelled, IsLocked, SpeakerWhatsAppUrl, CollectsTShirtSizes
             FROM community.Events
             WHERE Year = @year AND Moniker = @moniker AND IsPublished = 1;
             """, connection);
@@ -51,7 +51,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
             SELECT ID, Year, Moniker, IsCurrent, IsPublished, Name,
                    EventDate, CallForPapersOpenAt, CallForPapersCloseAt, CallForPapersUrl,
                    SessionizeMoniker, Description, SessionizeJsonUri, CheckInToken,
-                   IsCancelled, IsLocked
+                   IsCancelled, IsLocked, SpeakerWhatsAppUrl, CollectsTShirtSizes
             FROM community.Events
             WHERE IsPublished = 1 AND IsCancelled = 0 AND EventDate >= @today
             ORDER BY EventDate, Name;
@@ -74,7 +74,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
             SELECT ID, Year, Moniker, IsCurrent, IsPublished, Name,
                    EventDate, CallForPapersOpenAt, CallForPapersCloseAt, CallForPapersUrl,
                    SessionizeMoniker, Description, SessionizeJsonUri, CheckInToken,
-                   IsCancelled, IsLocked
+                   IsCancelled, IsLocked, SpeakerWhatsAppUrl, CollectsTShirtSizes
             FROM community.Events
             WHERE IsPublished = 1 AND EventDate < @today
             ORDER BY EventDate DESC, Name;
@@ -99,7 +99,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
             SELECT ID, Year, Moniker, IsCurrent, IsPublished, Name,
                    EventDate, CallForPapersOpenAt, CallForPapersCloseAt, CallForPapersUrl,
                    SessionizeMoniker, Description, SessionizeJsonUri, CheckInToken,
-                   IsCancelled, IsLocked
+                   IsCancelled, IsLocked, SpeakerWhatsAppUrl, CollectsTShirtSizes
             FROM community.Events
             WHERE IsPublished = 1 AND IsCancelled = 1 AND EventDate >= @today
             ORDER BY EventDate, Name;
@@ -425,6 +425,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
 
     public async Task SaveAsync(EventDefinition item, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Saving event {EventId} ({Year}/{Moniker}), published={Published}.", item.Id, item.Year, item.Moniker, item.IsPublished);
         if (item.Year is < 2000 or > 9999 ||
             string.IsNullOrWhiteSpace(item.Moniker) ||
             item.Moniker.Length > 80 ||
@@ -434,6 +435,15 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
             !DateTime.TryParse(item.EventDate, out _))
         {
             throw new ArgumentException("I dati obbligatori dell'evento non sono validi.", nameof(item));
+        }
+
+        item.SpeakerWhatsAppUrl = (item.SpeakerWhatsAppUrl ?? string.Empty).Trim();
+        if (item.SpeakerWhatsAppUrl.Length > 0 &&
+            (item.SpeakerWhatsAppUrl.Length > 512 ||
+             !Uri.TryCreate(item.SpeakerWhatsAppUrl, UriKind.Absolute, out var whatsApp) ||
+             whatsApp.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new ArgumentException("Il link del gruppo WhatsApp deve essere un URL HTTPS valido.", nameof(item));
         }
 
         await using var connection = await connections.OpenAsync(cancellationToken);
@@ -447,17 +457,18 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
                 CallForPapersOpenAt = @cfpOpen, CallForPapersCloseAt = @cfpClose,
                 CallForPapersUrl = @cfpUrl,
                 SessionizeMoniker = @sessionizeMoniker, SessionizeJsonUri = @sessionizeJsonUri,
-                Description = @description
+                Description = @description,
+                SpeakerWhatsAppUrl = @whatsApp, CollectsTShirtSizes = @collectsTShirts
             WHERE ID = @id;
             IF @@ROWCOUNT = 0
             BEGIN
                 INSERT INTO community.Events
                     (Year, Moniker, IsCurrent, IsPublished, Name, EventDate,
                      CallForPapersOpenAt, CallForPapersCloseAt, CallForPapersUrl,
-                     SessionizeMoniker, SessionizeJsonUri, Description)
+                     SessionizeMoniker, SessionizeJsonUri, Description, SpeakerWhatsAppUrl, CollectsTShirtSizes)
                 VALUES
                     (@year, @moniker, 0, @isPublished, @name, @eventDate,
-                     @cfpOpen, @cfpClose, @cfpUrl, @sessionizeMoniker, @sessionizeJsonUri, @description);
+                     @cfpOpen, @cfpClose, @cfpUrl, @sessionizeMoniker, @sessionizeJsonUri, @description, @whatsApp, @collectsTShirts);
             END;
             """, connection);
         AddEventParameters(command, item);
@@ -467,6 +478,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
 
     public async Task<bool> SetPublishedAsync(int id, bool isPublished, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Setting published={Published} on event {EventId}.", isPublished, id);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             UPDATE community.Events
@@ -482,6 +494,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
 
     public async Task<bool> SetCancelledAsync(int id, bool isCancelled, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Setting cancelled={Cancelled} on event {EventId}.", isCancelled, id);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             UPDATE community.Events
@@ -498,6 +511,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
     /// <summary>Blocks (or unblocks) changes to registrations by participants for an event.</summary>
     public async Task<bool> SetLockedAsync(int id, bool isLocked, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Setting locked={Locked} on event {EventId}.", isLocked, id);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             UPDATE community.Events SET IsLocked = @isLocked WHERE ID = @id;
@@ -514,6 +528,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
     /// </summary>
     public async Task<Guid?> RotateCheckInTokenAsync(int eventId, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Rotating the check-in token of event {EventId} (a new QR code is being generated).", eventId);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
             UPDATE community.Events
@@ -528,6 +543,7 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
 
     public async Task<bool> SetCurrentAsync(int id, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Setting event {EventId} as the current event.", id);
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await using var command = new SqlCommand("""
@@ -568,7 +584,9 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
             SessionizeJsonUri = reader.IsDBNull(12) ? string.Empty : reader.GetString(12),
             CheckInToken = reader.GetGuid(13),
             IsCancelled = reader.GetBoolean(14),
-            IsLocked = reader.GetBoolean(15)
+            IsLocked = reader.GetBoolean(15),
+            SpeakerWhatsAppUrl = reader.GetString(16),
+            CollectsTShirtSizes = reader.GetBoolean(17)
         };
     }
 
@@ -585,6 +603,8 @@ public sealed class EventCatalogService(SqlConnectionFactory connections)
         command.Parameters.Add("@sessionizeMoniker", SqlDbType.NVarChar, 64).Value = item.SessionizeUrl;
         command.Parameters.Add("@sessionizeJsonUri", SqlDbType.NVarChar, 128).Value = item.SessionizeJsonUri;
         command.Parameters.Add("@description", SqlDbType.NVarChar, -1).Value = RichText.ToHtml(item.Description);
+        command.Parameters.Add("@whatsApp", SqlDbType.NVarChar, 512).Value = (item.SpeakerWhatsAppUrl ?? string.Empty).Trim();
+        command.Parameters.Add("@collectsTShirts", SqlDbType.Bit).Value = item.CollectsTShirtSizes;
     }
 
     private static object ParseOptionalDate(string value) =>

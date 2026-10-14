@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-14
+
+- Speaker per evento: nota "non vale come prenotazione" sull'albergo, voce **Altro** con campo "Se vuoi specifica", **taglia della maglia** (taglie europee, N/A) attiva solo se l'evento la raccoglie (flag, predefinito no), **link del gruppo WhatsApp speaker** per evento.
+- **Copertine delle sessioni** generate con SkiaSharp (stile allegato) e collegate alla sessione, oppure caricate a mano.
+- Logging esteso a servizi ed endpoint principali.
+- Provision.sql: nuove colonne `EventSpeakers.AlbergoNote/TShirtSize`, `Events.SpeakerWhatsAppUrl/CollectsTShirtSizes`, `EventSessions.CoverAssetID`, albergo "Altro" (da eseguire anche sul database online).
+
 ## 2026-10-10
 
 - Rimosso il progetto database `EventAppDb` (SSDT, obsoleto) dalla soluzione.

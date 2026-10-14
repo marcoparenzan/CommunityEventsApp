@@ -6,7 +6,7 @@ using EventsCommon.Models;
 
 namespace EventsCommon.Services;
 
-public sealed class SmtpEmailSender(IConfiguration configuration)
+public sealed class SmtpEmailSender(ILogger<SmtpEmailSender> logger, IConfiguration configuration)
 {
     /// <summary>Footer added to every email: how to stop event communications or delete the account.</summary>
     private string Footer()
@@ -21,6 +21,7 @@ public sealed class SmtpEmailSender(IConfiguration configuration)
 
     public async Task SendPinAsync(string recipient, string pin, string? loginUrl = null, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Sending a login PIN email.");
         var message = new MimeMessage();
         message.From.Add(MailboxAddress.Parse(GetFromAddress()));
         message.To.Add(MailboxAddress.Parse(recipient));
@@ -38,6 +39,7 @@ public sealed class SmtpEmailSender(IConfiguration configuration)
     /// <summary>Tells a person how to log in to the personal area (the PIN is requested from the site).</summary>
     public async Task SendLoginInvitationAsync(string recipient, string? firstName, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Sending a login invitation email.");
         var baseUrl = configuration["Application:PublicBaseUrl"];
         var loginUrl = string.IsNullOrWhiteSpace(baseUrl)
             ? "il sito 1nn0va"
@@ -145,6 +147,7 @@ public sealed class SmtpEmailSender(IConfiguration configuration)
         Func<MailRecipient, string> bodyFor,
         CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("Sending a bulk email.");
         using var client = new SmtpClient { Timeout = 20_000 };
         var sent = 0;
         var failed = 0;

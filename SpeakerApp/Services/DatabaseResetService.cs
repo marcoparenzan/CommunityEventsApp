@@ -6,7 +6,7 @@ namespace SpeakerApp.Services;
 /// Clears all application data and keeps only Marco Parenzan (user and SuperUser speaker).
 /// The schema is not touched (it is created and updated by EventsCommon/Database/Provision.sql).
 /// </summary>
-public sealed class DatabaseResetService(SqlConnectionFactory connections)
+public sealed class DatabaseResetService(ILogger<DatabaseResetService> logger, SqlConnectionFactory connections)
 {
     private const string OwnerEmail = "marco.parenzan@1nn0va.it";
 
@@ -32,6 +32,7 @@ public sealed class DatabaseResetService(SqlConnectionFactory connections)
 
     public async Task ResetAsync(CancellationToken cancellationToken = default)
     {
+        logger.LogWarning("DATABASE RESET: all the data is being cleared (only the owner account is kept).");
         await using var connection = await connections.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 

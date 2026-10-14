@@ -138,6 +138,11 @@
                 <span class="admin-field-label">Descrizione</span>
                 <div id="event-description-editor" class="rich-editor"></div>
             </div>
+            <label class="admin-wide">Link gruppo WhatsApp speaker <input type="url" @bind="draft.SpeakerWhatsAppUrl" maxlength="512" placeholder="https://chat.whatsapp.com/…" /></label>
+            <label class="admin-publish-option">
+                <input type="checkbox" @bind="draft.CollectsTShirtSizes" />
+                Raccogli la taglia della maglia degli speaker
+            </label>
             <label class="admin-publish-option">
                 <input type="checkbox" @bind="draft.IsPublished" />
                 Pubblica sul sito (disattivato: salva come bozza privata)
@@ -200,6 +205,23 @@
             <button class="admin-event-dialog-close" type="button" aria-label="Chiudi" @onclick="ClosePizza">×</button>
             <h2 id="admin-pizza-dialog-title">Calcolatore pizze · @pizzaEvent.Name</h2>
             <p class="admin-help">Valori iniziali: partecipanti con check-in effettuato, speaker sincronizzati e 5 aggiuntivi.</p>
+            @if (pizzaNumbers is { } numbers)
+            {
+                <dl class="pizza-event-numbers" aria-label="Numeri dell’evento">
+                    <div><dt>Iscritti (non annullati)</dt><dd>@numbers.Registered</dd></div>
+                    <div><dt>Confermati</dt><dd>@numbers.Confirmed</dd></div>
+                    <div><dt>In attesa di conferma</dt><dd>@numbers.AwaitingConfirmation</dd></div>
+                    <div><dt>Con check-in</dt><dd>@numbers.CheckedIn</dd></div>
+                    <div><dt>Che mangiano la pizza</dt><dd>@numbers.WithPizza</dd></div>
+                    <div><dt>Intolleranti al lattosio</dt><dd>@numbers.LactoseIntolerant</dd></div>
+                    <div><dt>Speaker</dt><dd>@numbers.Speakers</dd></div>
+                    <div><dt>Speaker alla cena</dt><dd>@numbers.SpeakersAtDinner (+@numbers.SpeakerDinnerGuests accompagnatori)</dd></div>
+                </dl>
+                <p class="pizza-use-numbers">
+                    <button type="button" @onclick="() => pizzaParticipantCount = numbers.WithPizza">Usa “che mangiano la pizza” come partecipanti</button>
+                    <button type="button" @onclick="() => pizzaParticipantCount = numbers.Confirmed">Usa i confermati</button>
+                </p>
+            }
             <div class="pizza-calculator-fields">
                 <label>
                     Partecipanti (check-in)
@@ -317,6 +339,7 @@
     private int? pizzaEventId;
     private EventDefinition? pizzaEvent => events.FirstOrDefault(item => item.Id == pizzaEventId);
     private int pizzaParticipantCount;
+    private EventNumbers? pizzaNumbers;
     private int pizzaSpeakerCount;
     private int pizzaExtraCount = 5;
     private decimal pizzaSlicesPerPerson = 3.0m;
@@ -343,7 +366,8 @@
 
         try
         {
-            pizzaParticipantCount = await EventCheckIn.GetCheckedInCountAsync(eventId);
+            pizzaNumbers = await EventCheckIn.GetEventNumbersAsync(eventId);
+            pizzaParticipantCount = pizzaNumbers.CheckedIn;
             pizzaSpeakerCount = await EventCatalog.GetEventSpeakerCountAsync(eventId);
             pizzaExtraCount = 5;
             pizzaSlicesPerPerson = 3.0m;
@@ -672,7 +696,9 @@
             CallForPapersUrl = item.CallForPapersUrl,
             SessionizeUrl = item.SessionizeUrl,
             SessionizeJsonUri = item.SessionizeJsonUri,
-            Description = item.Description
+            Description = item.Description,
+            SpeakerWhatsAppUrl = item.SpeakerWhatsAppUrl,
+            CollectsTShirtSizes = item.CollectsTShirtSizes
         };
         draftDate = DateTime.Parse(item.EventDate);
         description = RichText.ToHtml(item.Description);
