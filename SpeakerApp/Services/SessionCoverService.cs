@@ -147,6 +147,16 @@ public sealed class SessionCoverService(
         return true;
     }
 
+    public async Task<bool> HasCoverAsync(int eventId, string sessionId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connections.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(
+            "SELECT COUNT(*) FROM community.EventSessions WHERE EventID = @eventId AND SessionizeSessionID = @sessionId AND CoverAssetID IS NOT NULL;",
+            connection);
+        AddKey(command, eventId, sessionId);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) > 0;
+    }
+
     public async Task<SessionCoverFile?> GetAsync(
         int speakerId, bool isSuperUser, int eventId, string sessionId, CancellationToken cancellationToken = default)
     {

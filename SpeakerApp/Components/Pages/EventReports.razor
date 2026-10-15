@@ -35,7 +35,7 @@
         </select>
 
         <nav class="admin-letter-tabs" role="tablist" aria-label="Report">
-            @foreach (var report in AllReports)
+            @foreach (var report in AllReports.Where(r => r.Key != "tshirts" || SelectedEvent?.CollectsTShirtSizes == true))
             {
                 var current = report.Key;
                 <button type="button" role="tab" class="@(activeTab == current ? "active" : null)" aria-selected="@(activeTab == current)" @onclick="() => activeTab = current">@report.Label</button>
@@ -91,7 +91,8 @@
         new("confirmed", "Utenti confermati", "registered"),
         new("lactose", "Utenti intolleranti", "lactose"),
         new("sessions", "Sessioni", null),
-        new("speakers", "Speaker", null)
+        new("speakers", "Speaker", null),
+        new("tshirts", "Maglie speaker", null)
     ];
 
     private static readonly string[] UserHeaders = ["Cognome", "Nome", "Email", "Stato", "Check-in", "Pizza", "Lattosio"];
@@ -104,6 +105,7 @@
     private IReadOnlyList<EventAttendeeResponse> attendees = [];
     private IReadOnlyList<ReportSessionRow> sessions = [];
     private IReadOnlyList<ReportSpeakerRow> speakers = [];
+    private IReadOnlyList<(string Name, string? Size)> tshirts = [];
     private ReportTable? cachedTable;
     private string? cachedTableKey;
 
@@ -137,6 +139,11 @@
     {
         summary = null;
         cachedTable = null;
+        if (activeTab == "tshirts" && SelectedEvent?.CollectsTShirtSizes != true)
+        {
+            activeTab = "summary";
+        }
+
         message = string.Empty;
         if (selectedEventId == 0)
         {
@@ -148,6 +155,7 @@
             attendees = await CheckIn.GetAttendeesAsync(selectedEventId);
             sessions = await Reports.GetSessionsAsync(selectedEventId);
             speakers = await Reports.GetSpeakersAsync(selectedEventId);
+            tshirts = await Reports.GetTShirtSizesAsync(selectedEventId);
             summary = await Reports.GetSummaryAsync(selectedEventId);
         }
         catch (Exception exception)
@@ -210,6 +218,16 @@
                         string.IsNullOrEmpty(item.AccountEmail) ? "Non collegato" : item.AccountEmail,
                         item.Sessions.ToString(CultureInfo.InvariantCulture)
                     ]).ToArray());
+            case "tshirts":
+                // One row per size (in the usual order), then "not indicated": how many and who.
+                var order = SpeakerSelfService.TShirtSizes.Append(string.Empty).ToArray();
+                return new ReportTable(
+                    ["Taglia", "Quanti", "Speaker"],
+                    order.Select(size =>
+                    {
+                        var names = tshirts.Where(item => (item.Size ?? string.Empty) == size).Select(item => item.Name).ToArray();
+                        return (IReadOnlyList<string>)[size.Length == 0 ? "Non indicata" : size, names.Length.ToString(CultureInfo.InvariantCulture), string.Join(", ", names)];
+                    }).Where(row => row[1] != "0").ToArray());
             default:
                 return new ReportTable([], []);
         }

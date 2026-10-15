@@ -91,6 +91,25 @@ public sealed class EventReportService(SqlConnectionFactory connections)
         return rows;
     }
 
+    /// <summary>Speaker of the event with the T-shirt size they indicated (null when not indicated).</summary>
+    public async Task<IReadOnlyList<(string Name, string? Size)>> GetTShirtSizesAsync(
+        int eventId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await connections.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(
+            "SELECT Name, TShirtSize FROM community.EventSpeakers WHERE EventID = @eventId ORDER BY Name;", connection);
+        command.Parameters.Add("@eventId", SqlDbType.Int).Value = eventId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var rows = new List<(string, string?)>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            rows.Add((reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1)));
+        }
+
+        return rows;
+    }
+
     public async Task<IReadOnlyList<ReportSpeakerRow>> GetSpeakersAsync(
         int eventId,
         CancellationToken cancellationToken = default)

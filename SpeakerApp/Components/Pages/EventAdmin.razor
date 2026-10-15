@@ -105,6 +105,10 @@
                                         <p>@session.StartsAt.ToItaly().ToString("g")</p>
                                     </div>
                                     <button type="button" @onclick="() => EditSessionResources(item, session)">Modifica link</button>
+                                    @if (session.Id?.ToString() is { Length: > 0 } coverSessionId)
+                                    {
+                                        <SessionCoverAdmin @key="@($"{item.Id}:{coverSessionId}")" EventId="item.Id" SessionId="@coverSessionId" Title="@session.Title" />
+                                    }
                                 </article>
                             }
                         }

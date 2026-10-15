@@ -45,7 +45,7 @@ Barra fissa: Il mio profilo, I tuoi eventi, Le tue sessioni, Check-in evento e, 
 ## 5. Amministrazione (solo SuperUser)
 
 ### Eventi (`/events`)
-Schede per anno. Per evento: nome, anno, moniker, data, **descrizione rich text** (Quill, sanificata), moniker/JSON Sessionize, call for papers (apertura, chiusura, URL), pubblicato, **corrente** (uno solo), annullato, **bloccato**. Azioni con conferma: sincronizza da Sessionize, elimina, pubblica, imposta corrente, blocca/sblocca. Campi **Link gruppo WhatsApp speaker** e **Raccogli la taglia della maglia degli speaker** (predefinito: no). Template PowerPoint per evento (carica/sostituisci/scarica) e QR di check-in (sezione 9). I campi tagline, sede, immagine hero, URL/etichetta registrazione esterna non esistono più.
+Schede per anno. Per evento: nome, anno, moniker, data, **descrizione rich text** (Quill, sanificata), moniker/JSON Sessionize, call for papers (apertura, chiusura, URL), pubblicato, **corrente** (uno solo), annullato, **bloccato**. Azioni con conferma: sincronizza da Sessionize, elimina, pubblica, imposta corrente, blocca/sblocca. Campi **Link gruppo WhatsApp speaker** e **Raccogli la taglia della maglia degli speaker** (predefinito: no). Template PowerPoint per evento (carica/sostituisci/scarica), **copertine delle sessioni** di qualsiasi speaker (pannello "Link sessioni": genera e allega, allega a mano, scarica, rimuovi) e QR di check-in (sezione 9). I campi tagline, sede, immagine hero, URL/etichetta registrazione esterna non esistono più.
 
 ### Speaker (`/speakers`)
 Tab per iniziale del cognome, ordinamento per ultima partecipazione, finestra di modifica: nome, cognome, email, nome Sessionize, ID Sessionize, cellulare, ruoli **SuperUser** e **CanCheckIn**. Per evento: cena speaker, accompagnatori, **albergo** (tabella `Alberghi`).
@@ -63,7 +63,7 @@ Gestione delle track/aule (dato `Room` delle sessioni; "aula" e "track" sono sin
 Invio ai partecipanti di un evento per gruppo: **Utenti registrati** (tutti i non annullati), **non confermati**, **confermati**, **intolleranti al lattosio**, **con check-in**, **confermati senza check-in**, più gli speaker. Segnaposto `{nome}` ed `{evento}`; massimo **500 destinatari** per invio, senza coda né retry. Il footer con il link di disiscrizione è aggiunto automaticamente.
 
 ### Report (`/reports`)
-Riepilogo e tabelle (registrati, non confermati, confermati, intolleranti, check-in, sessioni, speaker) in griglia ordinabile e paginata, con **esportazione XLSX**.
+Riepilogo e tabelle (registrati, non confermati, confermati, intolleranti, check-in, sessioni, speaker) in griglia ordinabile e paginata, con **esportazione XLSX**. Per gli eventi che raccolgono le taglie c'è anche la tab **Maglie speaker** (quanti per taglia e chi, più chi non l'ha indicata).
 
 ### Import (`/import`)
 Un'unica pagina per: **partecipanti** (anche con ordine cognome, nome, email), **speaker** (email e ID Sessionize, con traccia dei cambi email), **materiali** (slide e repository per speaker/evento). Si carica un file **xlsx o csv** che diventa testo CSV nell'**editor Monaco** con colonne colorate (si può anche incollare direttamente); il separatore `,` o `;` è riconosciuto; le righe vuote sono saltate. Passi: carica → analizza (anteprima nuovi/aggiornati/scartati) → conferma. Dove serve si sceglie l'evento.

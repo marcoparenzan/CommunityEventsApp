@@ -1,0 +1,109 @@
+@using Microsoft.AspNetCore.Components.Forms
+@inject SessionCoverService Covers
+@inject ILogger<SessionCoverAdmin> Logger
+
+<div class="my-session-cover">
+    <h5>Copertina</h5>
+    @if (hasCover)
+    {
+        <p><img src="/api/speaker/events/@EventId/sessions/@Uri.EscapeDataString(SessionId)/cover?v=@version" alt="Copertina di @Title" style="max-width:100%;width:360px;height:auto" /></p>
+        <p>
+            <a class="event-button" href="/api/speaker/events/@EventId/sessions/@Uri.EscapeDataString(SessionId)/cover" download>Scarica</a>
+            <button type="button" @onclick="RemoveAsync" disabled="@busy">Rimuovi</button>
+        </p>
+    }
+    <p>
+        <button type="button" class="event-button" @onclick="GenerateAsync" disabled="@busy">@(hasCover ? "Rigenera e sostituisci" : "Genera e allega")</button>
+    </p>
+    <label>Oppure allega un’immagine (PNG, JPEG o WebP, massimo 5 MB)
+        <InputFile OnChange="UploadAsync" accept="image/png,image/jpeg,image/webp" disabled="@busy" />
+    </label>
+    @if (!string.IsNullOrEmpty(message)) { <p role="@(isError ? "alert" : "status")" class="admin-help">@message</p> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int EventId { get; set; }
+    [Parameter, EditorRequired] public string SessionId { get; set; } = string.Empty;
+    [Parameter] public string Title { get; set; } = string.Empty;
+
+    private bool hasCover;
+    private bool busy;
+    private bool isError;
+    private int version;
+    private string message = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            hasCover = await Covers.HasCoverAsync(EventId, SessionId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Could not read the cover state of session {SessionId}.", SessionId);
+        }
+    }
+
+    // Used by SuperUsers only (the page is restricted): speaker id 0 + superuser flag = any session of the event.
+    private async Task RunAsync(Func<Task<string>> action)
+    {
+        if (busy)
+        {
+            return;
+        }
+
+        busy = true;
+        isError = false;
+        message = string.Empty;
+        try
+        {
+            message = await action();
+            version++;
+            hasCover = await Covers.HasCoverAsync(EventId, SessionId);
+        }
+        catch (InvalidOperationException exception)
+        {
+            message = exception.Message;
+            isError = true;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Cover action failed for session {SessionId} of event {EventId}.", SessionId, EventId);
+            message = "L’operazione non è riuscita. Riprova tra poco.";
+            isError = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private Task GenerateAsync() => RunAsync(async () =>
+    {
+        await Covers.GenerateAsync(0, true, EventId, SessionId);
+        return "Copertina generata e allegata.";
+    });
+
+    private Task UploadAsync(InputFileChangeEventArgs args) => RunAsync(async () =>
+    {
+        try
+        {
+            await using var upload = args.File.OpenReadStream(maxAllowedSize: SessionCoverService.MaximumUploadBytes);
+            using var buffer = new MemoryStream();
+            await upload.CopyToAsync(buffer);
+            await Covers.UploadAsync(0, true, EventId, SessionId, args.File.Name, buffer.ToArray());
+        }
+        catch (IOException)
+        {
+            throw new InvalidOperationException("L’immagine deve pesare al massimo 5 MB.");
+        }
+
+        return "Copertina caricata.";
+    });
+
+    private Task RemoveAsync() => RunAsync(async () =>
+    {
+        await Covers.RemoveAsync(0, true, EventId, SessionId);
+        return "Copertina rimossa.";
+    });
+}

@@ -4,6 +4,7 @@
 
 - Speaker per evento: nota "non vale come prenotazione" sull'albergo, voce **Altro** con campo "Se vuoi specifica", **taglia della maglia** (taglie europee, N/A) attiva solo se l'evento la raccoglie (flag, predefinito no), **link del gruppo WhatsApp speaker** per evento.
 - **Copertine delle sessioni** generate con SkiaSharp (stile allegato) e collegate alla sessione, oppure caricate a mano.
+- Copertine gestibili dai SuperUser per qualsiasi sessione (Eventi → Link sessioni); nuova tab report **Maglie speaker**; il calcolatore pizze mostra i numeri dell'evento.
 - Logging esteso a servizi ed endpoint principali.
 - Provision.sql: nuove colonne `EventSpeakers.AlbergoNote/TShirtSize`, `Events.SpeakerWhatsAppUrl/CollectsTShirtSizes`, `EventSessions.CoverAssetID`, albergo "Altro" (da eseguire anche sul database online).
 

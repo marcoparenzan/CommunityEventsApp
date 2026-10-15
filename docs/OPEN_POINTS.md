@@ -6,12 +6,10 @@
 - Scanner QR con la fotocamera (BarcodeDetector e ripiego jsQR) su più dispositivi.
 - Rendering dell'editor Monaco nell'import e caricamento da cdnjs.
 - Flussi completi su Azure: PIN via email, iscrizione/conferma, check-in, invio mail, sincronizzazione Sessionize.
-- Eseguire `Provision.sql` sul database Azure prima del prossimo deploy.
 - Mail: provare con un gruppo piccolo; limite 500 destinatari per invio, nessuna coda né retry né gestione bounce.
 - Report: aprire l'XLSX in Excel e verificare le prestazioni con molti partecipanti (ordinamento e paginazione in memoria).
 
-- Copertine: verificare l'aspetto su Azure (font disponibili sul server; su Linux è incluso `SkiaSharp.NativeAssets.Linux.NoDependencies` ma non i font), con più speaker e con loghi sponsor opachi (vengono messi su un riquadro bianco). Il pannello è solo in "I tuoi eventi": un SuperUser non può ancora generare/allegare la copertina di una sessione di altri dalla pagina Eventi. Non c'è la sede dell'evento nell'intestazione (il campo è stato rimosso).
-- Taglie maglia: nessun report/riepilogo per taglia ancora; il dato è in `EventSpeakers.TShirtSize`.
+- Copertine: verificare l'aspetto su Azure (font disponibili sul server; su Linux è incluso `SkiaSharp.NativeAssets.Linux.NoDependencies` ma non i font), con più speaker e con loghi sponsor opachi (vengono messi su un riquadro bianco). Non c'è la sede dell'evento nell'intestazione (il campo è stato rimosso).
 
 ## Sicurezza e sessioni
 
